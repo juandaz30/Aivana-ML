@@ -5,11 +5,11 @@ class LinearRegression:
     # Regresión Lineal desde cero
 
     def __init__(self,
-                 learning_rate=0.01,    # qué tan grande es el paso que da el algoritmo en cada actualización de pesos
-                 n_iterations=1000,     # número de pasos máximos que hará el algoritmo
+                 learning_rate=0.01,    # qué tan fuerte ajusta los pesos en cada paso (si es muy grande, salta; si es muy pequeño, avanza lento)
+                 n_iterations=1000,     # cuántos pasos máximos va a dar el entrenamiento.
                  tolerance=1e-8,        # si la diferencia entre una iteración y la siguiente es menor a este valor, ya convergió, entre más pequeño más preciso
                  early_stopping=False,  # True lo detiene cuando la mejora es menor a tolerance, False hace todo el número de iteraciones 
-                 verbose=False,         # True imprime mensajes durante el entrenamiento (para debug)
+                 verbose=False,         # True imprime progreso del entrenamiento (para debug)
                  fit_intercept=True):   # True indica que el modelo incluye un bias(b), False indica un paso por 0,0 de la recta
         self.learning_rate = float(learning_rate)
         self.n_iterations = int(n_iterations)
@@ -91,7 +91,8 @@ class LinearRegression:
                 if abs(self.loss_history[-2] - self.loss_history[-1]) < self.tolerance:
                     if self.verbose:
                         print(f"[GD] Convergencia en la iteración {i}  (ΔMSE < {self.tolerance})")
-                    break
+                    return self
+        return self
 
     # predicciones con modelo ya entenado
     def predict(self, X):

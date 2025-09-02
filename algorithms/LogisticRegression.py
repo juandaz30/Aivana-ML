@@ -19,12 +19,12 @@ class LogisticRegression:
                  learning_rate=0.1,        # tamaño del paso de gradiente
                  n_iterations=2000,        # iteraciones máximas
                  tolerance=1e-6,           # mejora mínima de pérdida para considerar convergencia
-                 early_stopping=False,     # True: detiene cuando Δloss < tolerance
+                 early_stopping=False,     # si la diferencia entre una iteración y la siguiente es menor a este valor, ya convergió, entre más pequeño más preciso
                  verbose=False,            # True: imprime progreso
                  fit_intercept=True,       # True: usa término de sesgo (bias)
-                 l2=0.0,                   # fuerza de regularización L2 (0.0 = sin regularización)
-                 decision_threshold=0.5,   # umbral para convertir probas a clases
-                 clip=1e-15):              # para estabilidad numérica en log()
+                 l2=0.0,                   # fuerza de regularización L2 (0.0 = sin regularización), evita overfitting haciendo que los coeficientes o pesos sean mas pequeños
+                 decision_threshold=0.5,   # umbral o criterio para convertir probas a clases. clase 1 o clase 0 (si el sigmoide >= decision_threshold (0.5) es clase 1 si es < es clase 0)
+                 clip=1e-15):              # para estabilidad numérica. evita que log() copalse por valores = 0 o = 1
         self.learning_rate = float(learning_rate)
         self.n_iterations = int(n_iterations)
         self.tolerance = float(tolerance)
@@ -36,21 +36,37 @@ class LogisticRegression:
         self.clip = float(clip)
 
         # parámetros aprendidos
-        self.weights = None   # shape (n_features,)
-        self.bias = None      # escalar
+        self.weights = None
+        self.bias = None 
 
         # tracking
         self.loss_history = []
-
-        # mapping opcional si y viene en {-1,1}
-        self._y_neg = 0
-        self._y_pos = 1
+        # Etiquetas originales (neg, pos) para que predict devuelva las mismas
+        self.classes_ = None 
 
     # ---------- helpers ----------
+
+    def _ensure_2d(self, X):
+        """
+        Asegura que X sea 2D (n_samples, n_features).
+        Si viene 1D (n,), lo convertimos a (n,1) para evitar errores tontos.
+        """
+        X = np.asarray(X, dtype=float)
+        if X.ndim == 1:
+            X = X.reshape(-1, 1)
+        return X
+    
+    # toma lo calculado por el modelo y lo combierte a una probabilidad entre 0 y 1
+    # si z es muy negativo se acerca a 0, si es muy positivo se acerca a 1
     @staticmethod
     def _sigmoid(z):
-        # Sigmoid numéricamente estable
         # evita overflow para |z| grande
+        # Sigmoid numéricamente estable
+        """ Fórmula:
+          si z >= 0:  σ(z) = 1 / (1 + exp(-z))
+          si z <  0:  σ(z) = exp(z) / (1 + exp(z))
+        Con esto evitamos exp(500) o exp(-500) que rompe la máquina.
+        """
         z = np.asarray(z, dtype=float)
         # Para estabilidad, manejar positivos/negativos por separado
         out = np.empty_like(z, dtype=float)
@@ -61,20 +77,26 @@ class LogisticRegression:
         out[neg] = expz / (1.0 + expz)
         return out
 
+    # calcula la perdida para la regresión logística, si la predicción es perfecta devuelve 0 y entre más se equivoque más grande es el valor
     @staticmethod
     def _bce_loss(y, p, clip=1e-15):
         # Binary cross-entropy: - mean [ y log(p) + (1-y) log(1-p) ]
         p = np.clip(p, clip, 1.0 - clip)
         return -np.mean(y * np.log(p) + (1.0 - y) * np.log(1.0 - p))
 
+    #un vector con tantos valores como features se tengan. Se inicializan muy cercanos a 0, con cada iteración estos valores se van ajustando
     def _initialize_params(self, n_features):
         # w ~ N(0, 0.01^2), b = 0
         self.weights = np.random.randn(n_features) * 0.01
         self.bias = 0.0
 
+    # producto punto entre los datos de entrada, los pesos aprendidos y se le suma la bias
+    # son los datos en crudo, se puede decir que es cuanto "suma" cada dato de entrada al resultado según sus features
     def _predict_logits(self, X):
         return X @ self.weights + (self.bias if self.fit_intercept else 0.0)
 
+
+    #convierte los datos crudos de _predict_logits en intervalos entre 0 y 1 con sigmoide
     def _predict_proba_internal(self, X):
         return self._sigmoid(self._predict_logits(X))
 
@@ -102,6 +124,7 @@ class LogisticRegression:
                 return y.astype(float), 0, 1
             y01 = np.zeros_like(y, dtype=float)  # todo a 0
             return y01, classes[0], None
+        # Si tiene más de 2 valores distintos arroja un error
         else:
             raise ValueError("LogisticRegression binaria requiere exactamente 2 clases en y.")
 

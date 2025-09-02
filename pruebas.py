@@ -7,13 +7,15 @@ from algorithms.LogisticRegression import LogisticRegression
 from algorithms.Perceptron import Perceptron
 from algorithms.KMeans import KMeans
 
+# =========================
+# PRUEBA REGRESIÓN LINEAR CON UNA VARIABLE
+# =========================
 
 def linearRegression (X, y):
     # Dataset sintético, garantiza que todos los numeros random que se generen sigan la misma secuencia
     np.random.seed(42)
-    gd_model = LinearRegression(learning_rate=0.05, n_iterations=2000, early_stopping=True)
+    gd_model = LinearRegression(learning_rate=0.05, n_iterations=1000, early_stopping=True)
     gd_model.fit(X, y)
-    y_pred_gd = gd_model.predict(X)
 
     # ---- Modelo SKL ----
     sk_model = SklearnLR()
@@ -24,14 +26,24 @@ def linearRegression (X, y):
     # pesos, bias y coeficiente de determinación
     print("[SKL] w, b, R2:", sk_model.coef_, sk_model.intercept_, round(sk_model.score(X, y), 5))
     # muestra la diferencia entre los resultados de ambos algoritmos
-    print("\nΔ|GD vs SKL|  w:", np.abs(gd_model.weights - sk_model.coef_), 
+    print("\n|GD vs SKL|  w:", np.abs(gd_model.weights - sk_model.coef_), 
       " b:", abs(gd_model.bias - sk_model.intercept_))
+    
+#rand() genera una matriz de 100 filas y 1 columna con números random del 0 al 1 (sin incluirlo)
+#X = 2 * np.random.rand(100, 1) # *2 para que este en el rango de 0 a 2 (sin incluirlo)
+#toma todas las filas de la columna 0 en X (relación lineal)
+#y = 3 * X[:, 0] + 5 + np.random.randn(100) * 0.5  # y = 3x + 5 + ruido (representa la dispersión de los puntos al rededor de la recta)
+#linearRegression(X, y)
 
+
+# =========================
+# PRUEBA REGRESIÓN LINEAR CON VARIABLES MÚLTIPLES
+# =========================
 
 def multiLinearRegression(X_multi, y_multi):
     np.random.seed(42)
 
-    # ---- Tu modelo GD ----
+    # mi modelo
     gd_model_multi = LinearRegression(learning_rate=0.05, n_iterations=3000, early_stopping=True)
     gd_model_multi.fit(X_multi, y_multi)
     y_pred_gd_multi = gd_model_multi.predict(X_multi)
@@ -45,9 +57,20 @@ def multiLinearRegression(X_multi, y_multi):
     print("\n--- PRUEBA MULTIVARIABLE ---")
     print("[GD]  [w1, W2], b, R2:", gd_model_multi.weights, gd_model_multi.bias, round(gd_model_multi.score(X_multi, y_multi), 5))
     print("[SKL] w, b, R2:", sk_model_multi.coef_, sk_model_multi.intercept_, round(sk_model_multi.score(X_multi, y_multi), 5))
-    print("\nΔ|GD vs SKL|  w:", np.abs(gd_model_multi.weights - sk_model_multi.coef_), 
+    print("\n|GD vs SKL|  w:", np.abs(gd_model_multi.weights - sk_model_multi.coef_), 
         " b:", abs(gd_model_multi.bias - sk_model_multi.intercept_))
+    
+# Generamos X con 4 variables independientes (4 columnas)
+#X_multi = 2 * np.random.rand(100, 4)  # 100 muestras, 4 features
+# Relación lineal: y = 4*x1 + 2*x2 + 7 + ruido
+#y_multi = 4 * X_multi[:, 0] + 10 * X_multi[:, 1] + 7 * X_multi[:, 2] + 3 * X_multi[:, 3] + 7 + np.random.randn(100) * 0.5
+#multiLinearRegression(X_multi, y_multi)
 
+
+
+# =========================
+# PRUEBAS REGRESIÓN LOGÍSTICA
+# =========================
 
 def logisticRegression(X_log, y_log): 
     # Dataset binario sintético (linealmente separable)
@@ -67,10 +90,18 @@ def logisticRegression(X_log, y_log):
     print("\n--- PRUEBA REGRESIÓN LOGÍSTICA ---")
     print("[GD]  Pesos:", gd_model_log.weights, " Bias:", gd_model_log.bias, " Accuracy:", accuracy_score(y_log, y_pred_gd_log))
     print("[SKL] Pesos:", sk_model_log.coef_, " Bias:", sk_model_log.intercept_, " Accuracy:", accuracy_score(y_log, y_pred_skl_log))
-    print("\nΔ|GD vs SKL|  w:", np.abs(gd_model_log.weights - sk_model_log.coef_), 
+    print("\n|GD vs SKL|  w:", np.abs(gd_model_log.weights - sk_model_log.coef_), 
         " b:", abs(gd_model_log.bias - sk_model_log.intercept_))
     
+X_log = 2 * np.random.rand(100, 2) - 1  # valores entre -1 y 1
+# regla: si x1 + x2 > 0 => clase 1, else clase 0 (con algo de ruido)
+y_log = (X_log[:, 0] + X_log[:, 1] + np.random.randn(100) * 0.2 > 0).astype(int)
+logisticRegression(X_log, y_log)
 
+    
+# =========================
+# PRUEBAS PERCEPTRON
+# =========================
 def prueba_perceptron_binario():
     np.random.seed(0)
     # Datos 2D separables con ruido leve
@@ -103,6 +134,10 @@ def prueba_perceptron_multiclase():
     acc = pct.score(X, y)
     print("[Perceptrón multiclase OVR] accuracy:", round(acc, 4))
     print("Errores totales por época:", pct.errors_history_[:10], " ...")
+
+#prueba_perceptron_binario()
+#prueba_perceptron_multiclase()
+
 
 def _purity_score(y_true, y_pred):
     """Medida simple de pureza en datos sintéticos: por cluster,
@@ -159,52 +194,9 @@ def prueba_kmeans_inits():
     print("[KMEANS] inertia k-means++:", round(km_pp.inertia_, 2),
           "  inertia random:", round(km_rd.inertia_, 2))
 
-    
-
-
-
-# =========================
-# PRUEBA REGRESIÓN LINEAR CON UNA VARIABLE
-# =========================
-
-#rand() genera una matriz de 100 filas y 1 columna con números random del 0 al 1 (sin incluirlo)
-X = 2 * np.random.rand(100, 1) # *2 para que este en el rango de 0 a 2 (sin incluirlo)
-#toma todas las filas de la columna 0 en X (relación lineal)
-y = 3 * X[:, 0] + 5 + np.random.randn(100) * 0.5  # y = 3x + 5 + ruido (representa la dispersión de los puntos al rededor de la recta)
-#linearRegression(X, y)
-
-
-# =========================
-# PRUEBA REGRESIÓN LINEAR CON VARIABLES MÚLTIPLES
-# =========================
-
-# Generamos X con 2 variables independientes (2 columnas)
-X_multi = 2 * np.random.rand(100, 2)  # 100 muestras, 2 features
-# Relación lineal: y = 4*x1 + 2*x2 + 7 + ruido
-y_multi = 4 * X_multi[:, 0] + 2 * X_multi[:, 1] + 7 + np.random.randn(100) * 0.5
-#multiLinearRegression(X_multi, y_multi)
-
-
-# =========================
-# PRUEBAS REGRESIÓN LOGÍSTICA
-# =========================
-
-X_log = 2 * np.random.rand(100, 2) - 1  # valores entre -1 y 1
-# regla: si x1 + x2 > 0 => clase 1, else clase 0 (con algo de ruido)
-y_log = (X_log[:, 0] + X_log[:, 1] + np.random.randn(100) * 0.2 > 0).astype(int)
-#logisticRegression(X_log, y_log)
-
-
-# =========================
-# PRUEBAS PERCEPTRON
-# =========================
-
-#prueba_perceptron_binario()
-#prueba_perceptron_multiclase()
-
 
 # =========================
 # PRUEBAS KMeans
 # =========================
-prueba_kmeans_basico()
-prueba_kmeans_inits()
+#prueba_kmeans_basico()
+#prueba_kmeans_inits()
