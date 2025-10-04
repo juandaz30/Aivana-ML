@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify, send_from_directory
 import json, os
+from datetime import datetime
 
 app = Flask(__name__, static_folder="../frontend", static_url_path="/")
 
@@ -20,6 +21,20 @@ if os.path.exists(USERS_FILE):
         users = []
 else:
     users = []
+
+# ------------------- CONFIG PROJECTS -------------------
+PROJECTS_FILE = os.path.join(BASE_DIR, "projects.json")
+
+# Inicializar archivo si no existe
+if not os.path.exists(PROJECTS_FILE):
+    with open(PROJECTS_FILE, "w") as f:
+        json.dump([], f)
+
+with open(PROJECTS_FILE, "r") as f:
+    try:
+        projects = json.load(f)
+    except json.JSONDecodeError:
+        projects = []
 
 # ------------------- RUTAS -------------------
 @app.route("/register", methods=["POST"])
@@ -60,6 +75,43 @@ def login():
         })
     else:
         return jsonify({"success": False, "msg": "Credenciales inválidas"}), 401
+    
+# ------------------- RUTAS PARA PROYECTOS -------------------
+@app.route("/create_project", methods=["POST"])
+def create_project():
+    data = request.get_json()
+    name = data.get("name")
+    desc = data.get("description", "")
+    user = data.get("user")  # correo del usuario que creó el proyecto
+
+    if not name:
+        return jsonify({"success": False, "msg": "El nombre del proyecto es obligatorio"}), 400
+
+    # Crear objeto de proyecto
+    project = {
+        "id": len(projects) + 1,
+        "name": name,
+        "description": desc,
+        "user": user,
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+
+    projects.append(project)
+
+    with open(PROJECTS_FILE, "w") as f:
+        json.dump(projects, f, indent=4)
+
+    return jsonify({"success": True, "project": project})
+
+
+@app.route("/get_projects", methods=["GET"])
+def get_projects():
+    # Opcional: filtrar por usuario
+    user = request.args.get("user")
+    if user:
+        user_projects = [p for p in projects if p["user"] == user]
+        return jsonify({"success": True, "projects": user_projects})
+    return jsonify({"success": True, "projects": projects})
 
 
 
