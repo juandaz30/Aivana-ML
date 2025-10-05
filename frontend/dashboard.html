@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Aivana - Dashboard</title>
+    <link rel="stylesheet" href="css/dashboard.css">
+</head>
+<body>
+    <header>
+        <h1>Aivana</h1>
+        <nav>
+            <ul>
+                <li><a href="#create-project">Proyectos</a></li>
+                <li><a href="#upload-dataset">Datasets</a></li>
+                <li><a href="#select-model">Modelos</a></li>
+                <li><a href="#train-model">Entrenamiento</a></li>
+                <li><a href="#results">Resultados</a></li>
+                <li><a href="index.html">Cerrar sesión</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main>
+        <!-- Crear proyecto -->
+        <section id="create-project">
+            <h2>Crear nuevo proyecto</h2>
+            <form id="projectForm">
+                <label for="projectName">Nombre del proyecto</label>
+                <input id="projectName" name="projectName" type="text" placeholder="Ej: Predicción de ventas" required>
+
+                <label for="projectDesc">Descripción</label>
+                <textarea id="projectDesc" name="projectDesc" placeholder="Descripción breve del proyecto"></textarea>
+
+                <button type="submit">Crear proyecto</button>
+            </form>
+        </section>
+
+        <section id="projects-list">
+            <h2>Mis proyectos</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Nombre</th>
+                        <th>Descripción</th>
+                        <th>Fecha de creación</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="projectsTableBody">
+                    <!-- Aquí JS insertará los proyectos -->
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Subir dataset -->
+        <section id="upload-dataset" class="hidden">
+            <h2>Cargar dataset</h2>
+            <form id="datasetForm">
+                <label for="datasetFile">Selecciona un archivo CSV</label>
+                <input id="datasetFile" type="file" accept=".csv" required>
+                <button type="submit">Subir dataset</button>
+            </form>
+            <div id="datasetPreview">
+                <!-- Aquí se mostrará una vista previa de los datos -->
+            </div>
+        </section>
+
+        <!-- Seleccionar modelo -->
+        <section id="select-model" class="hidden">
+            <h2>Seleccionar modelo</h2>
+            <form id="modelForm">
+                <label for="modelSelect">Algoritmo de Machine Learning</label>
+                <select id="modelSelect" required>
+                    <option value="" disabled selected>-- Selecciona un modelo --</option>
+                    <option value="linear">Regresión Lineal</option>
+                    <option value="logistic">Regresión Logística</option>
+                    <option value="perceptron">Perceptrón</option>
+                    <option value="decisiontree">Árbol de Decisión</option>
+                    <option value="naivebayes">Naive Bayes</option>
+                    <option value="mlp">Red Neuronal (MLP)</option>
+                    <option value="pca">PCA</option>
+                    <option value="kmeans">K-Means</option>
+                </select>
+                <button type="submit">Seleccionar</button>
+            </form>
+        </section>
+
+        <!-- Entrenar modelo -->
+        <section id="train-model" class="hidden">
+            <h2>Entrenamiento</h2>
+            <button id="trainButton">Entrenar modelo</button>
+            <div id="trainingStatus">
+                <!-- Aquí se mostrarán mensajes de estado y progreso -->
+            </div>
+        </section>
+
+        <!-- Resultados -->
+        <section id="results" class="hidden">
+            <h2>Resultados</h2>
+            <div id="metrics">
+                <!-- Aquí se mostrarán métricas numéricas (accuracy, etc.) -->
+            </div>
+            <div id="charts">
+                <!-- Aquí se mostrarán gráficos -->
+            </div>
+        </section>
+    </main>
+
+    <script src="js/dashboard.js"></script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+# ==== Python ====
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+*.egg-info/
+*.egg
+*.log
+
+# Entornos virtuales
+.env
+.venv
+env/
+venv/
+ENV/
+Pipfile.lock
+poetry.lock
+
+# ==== Datos y modelos ====
+data/
+*.csv
+*.xlsx
+*.json
+!backend/users.json
+
+# ==== Archivos de sistema ====
+.DS_Store
+Thumbs.db
+
+# ==== IDEs ====
+.vscode/
+.idea/
+*.swp
+
+# ==== Node / Frontend (si usas npm más adelante) ====
+node_modules/
+dist/

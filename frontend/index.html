@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Aivana - Bienvenido</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <main>
+        <div class="container">
+            <h1>Aivana</h1>
+
+            <!-- Formulario de inicio de sesión -->
+            <form id="loginForm">
+                <label for="loginEmail">Correo electrónico</label>
+                <input id="loginEmail" name="email" type="email" placeholder="Ingresa tu correo" required>
+
+                <label for="loginPassword">Contraseña</label>
+                <input id="loginPassword" name="password" type="password" placeholder="Ingresa tu contraseña" required>
+
+                <button type="submit">Iniciar Sesión</button>
+            </form>
+
+            <!-- Formulario de registro (oculto por defecto con CSS) -->
+            <form id="registerForm" class="hidden">
+                <label for="registerName">Nombre completo</label>
+                <input id="registerName" name="name" type="text" placeholder="Ingresa tu nombre completo" required>
+
+                <label for="registerEmail">Correo electrónico</label>
+                <input id="registerEmail" name="email" type="email" placeholder="Ingresa tu correo" required>
+
+                <label for="registerPassword">Contraseña</label>
+                <input id="registerPassword" name="password" type="password" placeholder="Crea una contraseña" required>
+
+                <label for="registerConfirm">Confirmar contraseña</label>
+                <input id="registerConfirm" name="confirmPassword" type="password" placeholder="Repite la contraseña" required>
+
+                <button type="submit">Registrarse</button>
+            </form>
+
+            <!-- Alternar entre login y registro -->
+            <div class="toggle">
+                <p id="toggleText">
+                    ¿Aún no tienes cuenta? <a id="showRegister" href="#">Regístrate</a>
+                </p>
+            </div>
+        </div>
+    </main>
+
+    <script src="js/auth.js"></script>
+</body>
+</html>
