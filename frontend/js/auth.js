@@ -5,11 +5,13 @@ const toggleText = document.getElementById("toggleText");
 
 // Función para mostrar el formulario de registro
 function showRegisterForm() {
+    // manipula la lista de clases de los elementos
     loginForm.classList.add("hidden");      // Oculta login
     registerForm.classList.remove("hidden"); // Muestra registro
+    // sobreescribe el contenido
     toggleText.innerHTML = '¿Ya tienes cuenta? <a id="showLogin" href="#">Inicia Sesión</a>';
 
-    // Vuelve a capturar el link "Inicia Sesión"
+    // captura el enlace <a> recién creado y le asigna un envento
     document.getElementById("showLogin").addEventListener("click", showLoginForm);
 }
 
