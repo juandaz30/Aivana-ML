@@ -74,17 +74,123 @@ function viewProject(project) {
     if (title) title.textContent = `Cargar dataset para: ${project.name}`;
 }
 
+// ------------------- FUNCIÓN PARA EDITAR PROYECTO INLINE -------------------
+function enableEditMode(event, project) {
+    const row = event.target.closest("tr");
+
+    if (row.classList.contains("editing")) return;
+    row.classList.add("editing");
+
+    const nameCell = row.children[0];
+    const descCell = row.children[1];
+    const editBtn = row.querySelector(".edit-btn");
+
+    const oldName = nameCell.textContent.trim();
+    const oldDesc = descCell.textContent === "-" ? "" : descCell.textContent.trim();
+
+    // Inputs visualmente armonizados
+    nameCell.innerHTML = `<input type="text" class="edit-name" value="${oldName}" 
+        style="width:95%; padding:6px; border:1px solid #ccc; border-radius:6px;">`;
+    descCell.innerHTML = `<input type="text" class="edit-desc" value="${oldDesc}" 
+        style="width:95%; padding:6px; border:1px solid #ccc; border-radius:6px;">`;
+    
+    editBtn.textContent = "Guardar";
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.textContent = "Cancelar";
+    cancelBtn.classList.add("cancel-btn");
+    editBtn.after(cancelBtn);
+
+    // Limpia eventos antiguos
+    editBtn.onclick = null;
+    cancelBtn.onclick = null;
+
+    // Guardar cambios
+    editBtn.onclick = async () => {
+        const newName = row.querySelector(".edit-name").value.trim();
+        const newDesc = row.querySelector(".edit-desc").value.trim();
+        const user = JSON.parse(localStorage.getItem("user"));
+
+        //  Si no hay cambios, actúa como cancelar
+        if (newName === oldName && newDesc === oldDesc) {
+            cancelBtn.click();
+            return;
+        } else{
+            document.getElementById("upload-dataset").classList.add("hidden");
+            document.getElementById("select-model").classList.add("hidden");
+            document.getElementById("train-model").classList.add("hidden");
+            document.getElementById("results").classList.add("hidden");
+        }
+
+        if (!newName) {
+            alert("El nombre del proyecto no puede estar vacío");
+            return;
+        }
+
+        try {
+            const resp = await fetch("http://127.0.0.1:5000/edit_project", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    id: project.id,
+                    name: newName,
+                    description: newDesc,
+                    user: user.email
+                })
+            });
+
+            const data = await resp.json();
+
+            if (data.success) {
+                alert("Proyecto actualizado correctamente");
+                project.name = newName;
+                project.description = newDesc;
+                nameCell.textContent = newName;
+                descCell.textContent = newDesc || "-";
+            } else {
+                alert(data.msg);
+                nameCell.textContent = oldName;
+                descCell.textContent = oldDesc || "-";
+            }
+        } catch (err) {
+            console.error("Error al editar proyecto:", err);
+            alert("Error al guardar cambios del proyecto");
+            nameCell.textContent = oldName;
+            descCell.textContent = oldDesc || "-";
+        } finally {
+            // Restaurar botones y estado
+            row.classList.remove("editing");
+            editBtn.textContent = "Editar";
+            cancelBtn.remove();
+            editBtn.onclick = (e) => enableEditMode(e, project);
+        }
+    };
+
+    // Cancelar edición
+    cancelBtn.onclick = () => {
+        nameCell.textContent = oldName;
+        descCell.textContent = oldDesc || "-";
+        row.classList.remove("editing");
+        editBtn.textContent = "Editar";
+        cancelBtn.remove();
+        editBtn.onclick = (e) => enableEditMode(e, project);
+    };
+}
+
+
+
 // ------------------- FUNCIÓN PARA MOSTRAR PROYECTO EN MIS PROYECTOS -------------------
 function addProjectToTable(project) {
     // crea una fila en la tabla de proyectos
     const row = document.createElement("tr");
-    // crea los campos con información y botones 'Ver' y 'Eliminar'
+    // crea los campos con información y botones 'Ver', 'Editar' y 'Eliminar'
     row.innerHTML = `
         <td>${project.name}</td>
         <td>${project.description || "-"}</td>
         <td>${project.created_at}</td>
         <td>
             <button class="view-btn">Ver</button>
+            <button class="edit-btn">Editar</button>
             <button class="delete-btn">Eliminar</button>
         </td>
     `;
@@ -93,8 +199,45 @@ function addProjectToTable(project) {
     row.querySelector(".view-btn").addEventListener("click", () => {
         viewProject(project);
     });
+    // función que se ejecutará al presionar el botón 'Editar' en los proyectos agregados
+    row.querySelector(".edit-btn").addEventListener("click", (e) => {
+        enableEditMode(e, project);
+    });
     // agrega la fila creada a la tabla
     projectsTableBody.appendChild(row);
+
+
+    // Botón Eliminar
+    row.querySelector(".delete-btn").addEventListener("click", async () => {
+        const confirmed = confirm(`¿Seguro que deseas eliminar "${project.name}"?`);
+        if (!confirmed) return;
+
+        const user = JSON.parse(localStorage.getItem("user"));
+
+        try {
+            const resp = await fetch("http://127.0.0.1:5000/delete_project", {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id: project.id, user: user.email })
+            });
+
+            const data = await resp.json();
+
+            if (data.success) {
+                alert("Proyecto eliminado correctamente");
+                row.remove(); // quitarlo de la tabla sin recargar
+                document.getElementById("upload-dataset").classList.add("hidden");
+                document.getElementById("select-model").classList.add("hidden");
+                document.getElementById("train-model").classList.add("hidden");
+                document.getElementById("results").classList.add("hidden");
+            } else {
+                alert(data.msg);
+            }
+        } catch (err) {
+            console.error("Error al eliminar proyecto:", err);
+            alert("Error al intentar eliminar el proyecto");
+        }
+    });
 }
 
 async function loadProjects(userEmail) {

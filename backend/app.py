@@ -49,7 +49,8 @@ def load_json(path):
 users = load_json(USERS_FILE)
 projects = load_json(PROJECTS_FILE)
 
-# ------------------- CONFIGURACIÓN DE RUTAS -------------------
+# ------------------- RUTAS -------------------
+# ------------------- Registro -------------------
 # función que se ejecutará al recibir una petición POST (crear un usuario) en /register
 @app.route("/register", methods=["POST"]) # esta linea establece la dirección /register como una ruta válida para enviar peticiones desde js
 def register():
@@ -76,7 +77,7 @@ def register():
     # confirma el registro
     return jsonify({"success": True, "msg": "Registro exitoso"}), 201
 
-
+# ------------------- Iniciar Sesión -------------------
 # función que se ejecutará al recibir una petición POST (loggearse) en /login
 @app.route("/login", methods=["POST"])
 def login():
@@ -103,7 +104,7 @@ def login():
     else:
         return jsonify({"success": False, "msg": "Credenciales inválidas"}), 401
     
-# ------------------- RUTAS PARA PROYECTOS -------------------
+# ------------------- Crear Proyecto -------------------
 # función que se ejecutará al recibir una petición POST (crear un proyecto) en /create_project xd
 @app.route("/create_project", methods=["POST"])
 def create_project():
@@ -138,6 +139,7 @@ def create_project():
     # confirma la creación del proyecto
     return jsonify({"success": True, "msg": "Proyecto creado con éxito", "project": project}), 201
 
+# ------------------- Cargar Proyectos -------------------
 # función que se ejecutará al recibir una petición GET (cargar proyectos) en /get_projects xd
 @app.route("/get_projects", methods=["GET"])
 def get_projects():
@@ -151,6 +153,64 @@ def get_projects():
     # si no se mandó un user, devuelve todos los proyectos (USO DE ADMIN SOLAMENTE)
     return jsonify({"success": False, "msg": "No hay un usuario asociado"}), 200
 
+# ------------------- Editar Proyecto -------------------
+@app.route("/edit_project", methods=["PUT"])
+def edit_project():
+    # request procesa la solicitud PUT, extrae el JSON del cuerpo y deserializa los datos.
+    data = request.get_json()
+    # se extraen los campos del json
+    project_id = data.get("id")
+    new_name = data.get("name")
+    new_desc = data.get("description", "")
+    user = data.get("user")
+
+    if not project_id:
+        return jsonify({"success": False, "msg": "Falta el ID del proyecto"}), 400
+    if not new_name:
+        return jsonify({"success": False, "msg": "El nombre del proyecto no puede estar vacío"}), 400
+
+    # recorre el json de proyectos y busca coincidencias de id y usuario (correo)
+    # si hay coincidencia, project guarda el diccionario del proyecyo coincidente y detiene la busqueda. En caso de no encontrarlo, muestra un error
+    project = next((p for p in projects if p["id"] == project_id and p["user"] == user), None)
+    if not project:
+        return jsonify({"success": False, "msg": "Proyecto no encontrado o no pertenece al usuario"}), 404
+
+    # validar nombre repetido de proyecto para el mismo usuario
+    if any(p["name"] == new_name and p["user"] == user and p["id"] != project_id for p in projects):
+        return jsonify({"success": False, "msg": "Ya existe un proyecto con ese nombre"}), 400
+
+    # actualizar el diccionario con los datos nuevos
+    project["name"] = new_name
+    project["description"] = new_desc
+
+    # guarda los cambios en el json
+    with open(PROJECTS_FILE, "w") as f:
+        json.dump(projects, f, indent=4)
+
+    return jsonify({"success": True, "msg": "Proyecto actualizado correctamente", "project": project}), 200
+
+# ------------------- Eliminar Proyecto -------------------
+@app.route("/delete_project", methods=["DELETE"])
+def delete_project():
+    data = request.get_json()
+    project_id = data.get("id")
+    user = data.get("user")
+
+    if not project_id:
+        return jsonify({"success": False, "msg": "Falta el ID del proyecto"}), 400
+
+    # Buscar el proyecto
+    project = next((p for p in projects if p["id"] == project_id and p["user"] == user), None)
+    if not project:
+        return jsonify({"success": False, "msg": "Proyecto no encontrado o no pertenece al usuario"}), 404
+
+    # Eliminarlo
+    projects.remove(project)
+
+    with open(PROJECTS_FILE, "w") as f:
+        json.dump(projects, f, indent=4)
+
+    return jsonify({"success": True, "msg": "Proyecto eliminado correctamente"}), 200
 
 # inicialización del servidor
 if __name__ == "__main__":
