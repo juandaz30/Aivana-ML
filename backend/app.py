@@ -49,9 +49,9 @@ def load_json(path):
 users = load_json(USERS_FILE)
 projects = load_json(PROJECTS_FILE)
 
-# ------------------- RUTAS -------------------
+# ------------------- CONFIGURACIÓN DE RUTAS -------------------
 # función que se ejecutará al recibir una petición POST (crear un usuario) en /register
-@app.route("/register", methods=["POST"])
+@app.route("/register", methods=["POST"]) # esta linea establece la dirección /register como una ruta válida para enviar peticiones desde js
 def register():
     # request procesa la solicitud POST, extrae el JSON del cuerpo y deserializa los datos.
     data = request.get_json()
@@ -136,7 +136,7 @@ def create_project():
         json.dump(projects, f, indent=4)
 
     # confirma la creación del proyecto
-    return jsonify({"success": True, "project": project}), 201
+    return jsonify({"success": True, "msg": "Proyecto creado con éxito", "project": project}), 201
 
 # función que se ejecutará al recibir una petición GET (cargar proyectos) en /get_projects xd
 @app.route("/get_projects", methods=["GET"])
@@ -149,7 +149,7 @@ def get_projects():
         # valida la solicitud y envía los proyectos del usuario
         return jsonify({"success": True, "projects": user_projects}), 200
     # si no se mandó un user, devuelve todos los proyectos (USO DE ADMIN SOLAMENTE)
-    return jsonify({"success": True, "projects": projects}), 200
+    return jsonify({"success": False, "msg": "No hay un usuario asociado"}), 200
 
 
 # inicialización del servidor
