@@ -55,13 +55,18 @@
         <!-- Subir dataset -->
         <section id="upload-dataset" class="hidden">
             <h2>Cargar dataset</h2>
-            <form id="datasetForm">
+            <form id="datasetForm" enctype="multipart/form-data">
                 <label for="datasetFile">Selecciona un archivo CSV</label>
                 <input id="datasetFile" type="file" accept=".csv" required>
                 <button type="submit">Subir dataset</button>
             </form>
-            <div id="datasetPreview">
-                <!-- Aquí se mostrará una vista previa de los datos -->
+
+            <div id="datasetInfo" class="hidden">
+                <h3>Vista previa del dataset</h3>
+                <table id="datasetPreviewTable">
+                    <thead id="datasetPreviewHead"></thead>
+                    <tbody id="datasetPreviewBody"></tbody>
+                </table>
             </div>
         </section>
 
