@@ -135,6 +135,24 @@ table tr:hover {
     color: #444;
 }
 
+#preprocessResult {
+    background: #f9fafc;
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    padding: 1rem;
+    margin-top: 1rem;
+}
+
+#preprocessResult ul {
+    list-style: none;
+    padding-left: 0;
+}
+
+#preprocessResult li {
+    margin-bottom: 5px;
+}
+
+
 .hidden {
     display: none;
 }
