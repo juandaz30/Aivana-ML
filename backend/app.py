@@ -16,6 +16,7 @@ from flask import Flask, request, jsonify, send_from_directory
 import json, os
 from datetime import datetime
 import pandas as pd
+import numpy as np
 
 # Inicialización del servidor con ruta de archivos estáticos
 app = Flask(__name__, static_folder="../frontend", static_url_path="/")
@@ -224,45 +225,53 @@ def delete_project():
 # ------------------- Subir Dataset -------------------
 @app.route("/upload_dataset", methods=["POST"])
 def upload_dataset():
+    # obtiene el id del proyecto, el usuario y el archivo del formData de la petición POST
     project_id = request.form.get("project_id", type=int)
     user = request.form.get("user")
+    #archivos binarios van al objeto request.files
     file = request.files.get("file")
 
+    # si no existe el archivo o el proyecto
     if not project_id or not file:
         return jsonify({"success": False, "msg": "Faltan datos o archivo"}), 400
 
-    # Buscar proyecto
+    # busca el proyecto con id y asociado al usuario
     project = next((p for p in projects if p["id"] == project_id and p["user"] == user), None)
     if not project:
         return jsonify({"success": False, "msg": "Proyecto no encontrado"}), 404
 
-    # Crear carpeta para el proyecto
+    # crea la carpeta para el proyecto
     project_dir = os.path.join(DATASETS_DIR, f"project_{project_id}")
     os.makedirs(project_dir, exist_ok=True)
 
-    # Guardar archivo
+    # guarda el archivo subido
     filename = file.filename
     file_path = os.path.join(project_dir, filename)
     file.save(file_path)
 
-    # Guardar la ruta del dataset en el proyecto
+    # guarda la ruta en el json con un nueva llave
     project["dataset_path"] = file_path.replace("\\", "/")
 
+    # sobreescribe los cambios en el json
     with open(PROJECTS_FILE, "w") as f:
         json.dump(projects, f, indent=4)
 
-    # Leer primeras filas para previsualización
+    # lee primeras filas para previsualización con pandas
     try:
+        # guarda el dataset en un objeto DataFrame
         df = pd.read_csv(file_path)
+        # guarda las primeras 5 filas y las convierte en una lista de diccionarios python donde cada fila representa un diccionario y cada nombre de las columans es una llave
         preview = df.head(5).to_dict(orient="records")
+        # crea una lista que contiene solo los nombres de las columnas
         columns = list(df.columns)
 
-        # ✅ convertir NaN a None para que el JSON sea válido
+        # convertir NaN (dataset) a None para que el JSON sea válido
         preview = [{k: (None if pd.isna(v) else v) for k, v in row.items()} for row in preview]
 
     except Exception as e:
         return jsonify({"success": False, "msg": f"Error leyendo CSV: {e}"}), 400
 
+    # devuelve el proyecto, la información de la previsualización y los nombres de las columnas
     return jsonify({
         "success": True,
         "msg": "Dataset subido correctamente",
@@ -274,9 +283,8 @@ def upload_dataset():
 # ------------------- Preprocesar Datos -------------------
 @app.route("/preprocess_data", methods=["POST"])
 def preprocess_data():
-    import pandas as pd
-    import numpy as np
 
+    # obtiene el id del proyecto y el usuario de la petición POST
     data = request.get_json()
     project_id = data.get("project_id")
     user = data.get("user")
@@ -284,16 +292,18 @@ def preprocess_data():
     if not project_id or not user:
         return jsonify({"success": False, "msg": "Faltan parámetros"}), 400
 
-    # Buscar proyecto
+    # busca el proyecto
     project = next((p for p in projects if p["id"] == project_id and p["user"] == user), None)
     if not project:
         return jsonify({"success": False, "msg": "Proyecto no encontrado"}), 404
 
+    # obtiene la ruta de donde esta guardado el dataset subido
     dataset_path = project.get("dataset_path")
     if not dataset_path or not os.path.exists(dataset_path):
         return jsonify({"success": False, "msg": "No se encontró el dataset para este proyecto"}), 404
 
     try:
+        # lee el csv
         df = pd.read_csv(dataset_path)
     except Exception as e:
         return jsonify({"success": False, "msg": f"Error leyendo dataset: {e}"}), 400
@@ -383,24 +393,28 @@ def preprocess_data():
     }), 200
 
 # ------------------- Obtener el Dataset Preprocesado -------------------
+# este método se usa únicamente para mostrar la previsualización del dataset cargado al proyecto al abrir el dashboard
 @app.route("/get_clean_dataset", methods=["GET"])
 def get_clean_dataset():
-    import pandas as pd
 
+    # lee proyecto y usuario de la solicicud GET
     project_id = request.args.get("project_id", type=int)
     user = request.args.get("user")
 
     if not project_id or not user:
         return jsonify({"success": False, "msg": "Faltan parámetros"}), 400
 
+    # busca el proyecto
     project = next((p for p in projects if p["id"] == project_id and p["user"] == user), None)
     if not project:
         return jsonify({"success": False, "msg": "Proyecto no encontrado"}), 404
 
+    # carga la ruta del dataset
     dataset_path = project.get("dataset_path")
     if not dataset_path or not os.path.exists(dataset_path):
         return jsonify({"success": False, "msg": "Dataset no encontrado"}), 404
-
+    
+    # muestra la vista previa del dataset existente
     try:
         df = pd.read_csv(dataset_path)
         preview = df.head(5).to_dict(orient="records")
@@ -414,6 +428,223 @@ def get_clean_dataset():
         "success": True,
         "columns": columns,
         "preview": preview
+    }), 200
+
+# ------------------- Recomendar Modelo -------------------
+@app.route("/recommend_model", methods=["POST"])
+def recommend_model():
+    # carga el proyecto, el usuario y el target
+    data = request.get_json()
+    project_id = data.get("project_id")
+    user = data.get("user")
+    target = data.get("target")  # nombre de la columna objetivo (opcional)
+    
+    if not project_id or not user:
+        return jsonify({"success": False, "msg": "Faltan parámetros"}), 400
+
+    # buscar proyecto
+    project = next((p for p in projects if p["id"] == project_id and p["user"] == user), None)
+    if not project:
+        return jsonify({"success": False, "msg": "Proyecto no encontrado"}), 404
+
+    # busca el dataset
+    dataset_path = project.get("dataset_path")
+    if not dataset_path or not os.path.exists(dataset_path):
+        return jsonify({"success": False, "msg": "Dataset no encontrado para este proyecto"}), 404
+
+    # carga el dataset
+    try:
+        df = pd.read_csv(dataset_path)
+    except Exception as e:
+        return jsonify({"success": False, "msg": f"Error leyendo dataset: {e}"}), 400
+
+    n, p_total = df.shape
+    # Detectar columnas numéricas / no numéricas
+    num_cols = df.select_dtypes(include=["number"]).columns.tolist()
+    cat_cols = [c for c in df.columns if c not in num_cols]
+
+    # Si no envían target y hay una columna llamada Y, se usa; si no, sin target (no supervisado)
+    if not target:
+        if "Y" in df.columns:
+            target = "Y"
+        else:
+            # No supervisado: se recomienda PCA/KMeans según p
+            recs = [
+                {"model": "PCA", "score": 0.9, "why": "No se definió variable objetivo; reducción de dimensión para exploración."},
+                {"model": "KMeans", "score": 0.8, "why": "No se definió objetivo; posible agrupamiento natural en los datos."}
+            ]
+            return jsonify({"success": True, "task": "unsupervised", "recommendations": recs})
+
+    if target not in df.columns:
+        return jsonify({"success": False, "msg": f"La columna objetivo '{target}' no existe en el dataset"}), 400
+
+    # Separar X / y
+    y = df[target]
+    X = df.drop(columns=[target])
+    # Recalcular tipos sin la y
+    X_num = X.select_dtypes(include=["number"]).columns.tolist()
+    X_cat = [c for c in X.columns if c not in X_num]
+
+    task = "regression" if pd.api.types.is_numeric_dtype(y) else "classification"
+
+    recommendations = []
+
+    if task == "regression":
+        # Heurística simple de linealidad: correlación absoluta media entre y y features numéricas
+        corr_score = 0.0
+        if len(X_num) > 0:
+            corrs = []
+            for c in X_num:
+                try:
+                    corrs.append(abs(np.corrcoef(X[c], y)[0, 1]))
+                except Exception:
+                    pass
+            if corrs:
+                corr_score = float(np.nanmean(corrs))
+
+        # Pocas features + buena correlación → LinearRegression
+        score_lr = 0.6 + 0.4 * min(1.0, corr_score) - 0.1 * max(0, len(X_num) - 10) / 20
+        recommendations.append({
+            "model": "LinearRegression",
+            "score": round(max(0.1, min(1.0, score_lr)), 3),
+            "why": f"Objetivo numérico; correlación media≈{corr_score:.2f}. Regresión lineal es base fuerte y explicable."
+        })
+
+        # Si hay indicio de no linealidad (p muchas, corr baja) → árbol / MLP
+        nonlin_hint = (corr_score < 0.3) or (len(X_num) >= 10)
+        if nonlin_hint:
+            recommendations.append({
+                "model": "DecisionTreeClassifier (usar versión regresor luego)",
+                "score": 0.55,
+                "why": "No linealidad o muchas variables; árboles capturan relaciones no lineales. (Para regresión, usar DecisionTreeRegressor)."
+            })
+            recommendations.append({
+                "model": "MLP",
+                "score": 0.5,
+                "why": "Red de perceptrón multicapa puede capturar no linealidad si tienes suficientes datos."
+            })
+
+    else:  # classification
+        # Cardinalidad y desbalance
+        classes = y.astype(str).unique().tolist()
+        k = len(classes)
+        counts = y.astype(str).value_counts(normalize=True)
+        imbalance = float(counts.max()) if not counts.empty else 1.0  # 1.0 = muy desbalanceado
+
+        # Binaria → LogisticRegression como baseline
+        if k == 2:
+            base = 0.75 - 0.2 * (imbalance - 0.5)  # un poco menos si hay desbalance fuerte
+            recommendations.append({
+                "model": "LogisticRegression",
+                "score": round(max(0.1, min(1.0, base)), 3),
+                "why": f"Clasificación binaria; baseline rápido y explicable. Desbalance≈{imbalance:.2f}."
+            })
+            # Si hay no linealidad (muchas numéricas o sospecha): árbol y MLP
+            if len(X_num) >= 5 or k > 2:
+                recommendations.append({
+                    "model": "DecisionTreeClassifier",
+                    "score": 0.6,
+                    "why": "Puede manejar fronteras no lineales y variables mixtas."
+                })
+                recommendations.append({
+                    "model": "MLP",
+                    "score": 0.55,
+                    "why": "Puede capturar patrones complejos si hay suficientes muestras."
+                })
+            else:
+                recommendations.append({
+                    "model": "Perceptron",
+                    "score": 0.5,
+                    "why": "Si separable casi lineal, Perceptrón funciona muy rápido."
+                })
+        else:
+            # Multiclase → Árbol como baseline, Naive Bayes si hay texto o muchas categoricas
+            recommendations.append({
+                "model": "DecisionTreeClassifier",
+                "score": 0.65,
+                "why": f"Multiclase ({k} clases); árboles son versátiles e interpretables."
+            })
+            if len(X_cat) > len(X_num):
+                recommendations.append({
+                    "model": "NaiveBayes",
+                    "score": 0.6,
+                    "why": "Muchas variables categóricas/bolsa de palabras; NB es simple y efectivo."
+                })
+            else:
+                recommendations.append({
+                    "model": "MLP",
+                    "score": 0.55,
+                    "why": "Puede modelar fronteras complejas en multiclase si hay datos."
+                })
+
+    # Si no hay target o no se generaron recomendaciones por algún motivo:
+    if not recommendations:
+        recommendations = [
+            {"model": "PCA", "score": 0.6, "why": "No se pudo inferir tarea claramente; explora reducción de dimensión."},
+            {"model": "KMeans", "score": 0.5, "why": "Prueba agrupamiento no supervisado."}
+        ]
+
+    # Ordenar por score desc y dejar top-3
+    recommendations = sorted(recommendations, key=lambda r: r["score"], reverse=True)[:3]
+
+    return jsonify({
+        "success": True,
+        "task": task,
+        "target": target,
+        "n_rows": int(n),
+        "n_features": int(len(X.columns)),
+        "numeric_features": X_num,
+        "categorical_features": X_cat,
+        "recommendations": recommendations
+    }), 200
+
+# ------------------- Seleccionar Modelo -------------------
+# parametros por defecto de los modelos
+DEFAULT_PARAMS = {
+    "linear_regression":   {"learning_rate": 0.01, "n_iterations": 1000, "fit_intercept": True},
+    "logistic_regression": {"learning_rate": 0.1,  "n_iterations": 2000, "fit_intercept": True, "decision_threshold": 0.5},
+    "perceptron":          {"learning_rate": 1.0,  "n_iterations": 1000, "fit_intercept": True},
+    "decision_tree":       {"criterion": "gini",   "max_depth": None, "min_samples_split": 2},
+    "naive_bayes":         {"nb_type": "gaussian", "alpha": 1.0},
+    "mlp":                 {"hidden_layers": [32], "activation": "relu", "learning_rate": 0.01, "n_iterations": 200},
+    "kmeans":              {"n_clusters": 3, "max_iter": 300, "tol": 1e-4},
+    "pca":                 {"n_components": None, "whiten": False}
+}
+
+@app.route("/select_model", methods=["POST"])
+def api_models_select():
+
+    data = request.get_json() or {}
+    project_id = data.get("project_id")
+    user = data.get("user")
+    category = data.get("category")        # usa los valores tal como vienen del HTML
+    algorithm_key = data.get("algorithm_key")
+    params = data.get("params") or {}
+
+    if not project_id or not user or not category or not algorithm_key:
+        return jsonify({"success": False, "msg": "Faltan parámetros (project_id, user, category, algorithm_key)"}), 400
+
+    project = next((p for p in projects if p["id"] == project_id and p["user"] == user), None)
+    if not project:
+        return jsonify({"success": False, "msg": "Proyecto no encontrado"}), 404
+
+    # defaults + override del front (si no hay defaults, usa solo los params que mandes)
+    merged_params = {**DEFAULT_PARAMS.get(algorithm_key, {}), **params}
+
+    project["model_cfg"] = {
+        "category": category,
+        "algorithm_key": algorithm_key,
+        "params": merged_params
+    }
+
+    with open(PROJECTS_FILE, "w") as f:
+        json.dump(projects, f, indent=4)
+
+    return jsonify({
+        "success": True,
+        "msg": "Modelo seleccionado y guardado",
+        "model_cfg": project["model_cfg"],
+        "project": project
     }), 200
 
 
