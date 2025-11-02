@@ -29,7 +29,7 @@ def linearRegression (X, y):
     print("\n|GD vs SKL|  w:", np.abs(gd_model.weights - sk_model.coef_), 
       " b:", abs(gd_model.bias - sk_model.intercept_))
     
-#rand() genera una matriz de 100 filas y 1 columna con números random del 0 al 1 (sin incluirlo)
+#rand() genera una matriz de 100 filas y 1 columna con números random del 0 al 1 (sin incluirlo)  
 #X = 2 * np.random.rand(100, 1) # *2 para que este en el rango de 0 a 2 (sin incluirlo)
 #toma todas las filas de la columna 0 en X (relación lineal)
 #y = 3 * X[:, 0] + 5 + np.random.randn(100) * 0.5  # y = 3x + 5 + ruido (representa la dispersión de los puntos al rededor de la recta)
