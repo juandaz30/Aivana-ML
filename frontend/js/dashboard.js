@@ -389,10 +389,11 @@ datasetForm.addEventListener("submit", async (e) => {
             // Mostrar vista previa
             renderDatasetPreview(data.columns, data.preview);
 
-            activeProject.dataset_path = data.project.dataset_path;
-            // 🆕 nombre legible
+            // nombre legible (deja solo el nombre del archivo)
             activeProject.dataset_name = (data.project.dataset_path || "").split("/").pop();
+            // actualiza el nombre del label del dataset
             setDatasetNameLabel(activeProject.dataset_name);
+            //guarda los datos en el almacenamiento local
             localStorage.setItem("activeProject", JSON.stringify(activeProject));
         } else {
             alert(data.msg || "Error al subir dataset");
@@ -415,6 +416,7 @@ function setDatasetNameLabel(filename) {
     container.prepend(title);
   }
   const safeName = filename || "(sin nombre)";
+  // sobreescribe el nombre actualizado
   title.innerHTML = `Vista previa del dataset: <span id="datasetName">${safeName}</span>`;
 }
 
@@ -422,9 +424,11 @@ function setDatasetNameLabel(filename) {
 
 // ------------------- FUNCIÓN PARA MOSTRAR VISTA PREVIA -------------------
 function renderDatasetPreview(columns, rows) {
+    // quita la información del preview (thead, tbody)
     datasetPreviewHead.innerHTML = "";
     datasetPreviewBody.innerHTML = "";
 
+    // si no hay columnas oculta todo el div
     if (!columns || columns.length === 0) {
         datasetInfo.classList.add("hidden");
         return;
@@ -432,14 +436,20 @@ function renderDatasetPreview(columns, rows) {
 
     // Crear encabezados
     const headRow = document.createElement("tr");
-    columns.forEach(col => {
+    columns.forEach(col => { // por cada columna existente se ejecuta
+        // crea elementos table headers vacíos
         const th = document.createElement("th");
+        // le asigna el nombre de cada columna a los th
         th.textContent = col;
+        // se agregan a la fila de encabezado
         headRow.appendChild(th);
     });
+
+    // integra la fila de cabecera al thead del preview
     datasetPreviewHead.appendChild(headRow);
 
     // Crear filas de datos
+    // lo mismo de arriba pero con las celdas de data para el preview
     rows.forEach(row => {
         const tr = document.createElement("tr");
         columns.forEach(col => {
@@ -450,10 +460,12 @@ function renderDatasetPreview(columns, rows) {
         datasetPreviewBody.appendChild(tr);
     });
 
+    // muestra la info si estaba oculta
     datasetInfo.classList.remove("hidden");
 
     const activeProject = JSON.parse(localStorage.getItem("activeProject") || "{}");
     const fileName = activeProject?.dataset_name || (activeProject?.dataset_path || "").split("/").pop();
+    // actualiza el label del nombre del dataset
     setDatasetNameLabel(fileName);
 }
 
@@ -683,7 +695,7 @@ async function saveModelSelection() {
       if (modelStatus) {
         modelStatus.innerHTML = `<span style="color:green">✔ Modelo guardado: <b>${uiVal}</b> → <code>${map.key}</code></span>`;
       }
-      // habilitar entrenar si tienes botón en #train-model
+      // habilitar entrenar 
       const trainBtn = document.getElementById("trainButton") || document.querySelector("#train-model button");
       if (trainBtn) trainBtn.disabled = false;
 
@@ -722,6 +734,130 @@ if (modelForm) {
       saveModelSelection();
     }, { capture: true });
   }
+}
+
+
+// ======== Entrenar modelo ========
+const trainBtn = document.getElementById("trainButton");
+const trainingStatus = document.getElementById("trainingStatus");
+const metricsBox = document.getElementById("metrics");
+
+function getVisibleColumnsFromPreview() {
+  return Array.from(document.querySelectorAll("#datasetPreviewHead th")).map(th => th.textContent.trim());
+}
+
+function getSelectedModelKeyFromProject() {
+  const activeProject = JSON.parse(localStorage.getItem("activeProject") || "{}");
+  return activeProject?.model_cfg?.algorithm_key || null;
+}
+
+function isSupervised(algKey) {
+  return ["linear_regression","logistic_regression","perceptron","decision_tree","naive_bayes","mlp"].includes(algKey);
+}
+
+async function trainCurrentModel() {
+  const activeProject = JSON.parse(localStorage.getItem("activeProject") || "{}");
+  const user = JSON.parse(localStorage.getItem("user") || "{}");
+  if (!activeProject?.id) return alert("Selecciona un proyecto primero.");
+  if (!user?.email) return alert("No hay sesión activa.");
+
+  const algKey = getSelectedModelKeyFromProject();
+  if (!algKey) return alert("Selecciona y guarda un modelo primero en la sección 'Modelos'.");
+
+  let target = null;
+  if (isSupervised(algKey)) {
+    const cols = getVisibleColumnsFromPreview();
+    const defaultTarget = cols.includes("Y") ? "Y" : (cols[cols.length - 1] || "");
+    target = prompt("Columna objetivo (target):", defaultTarget);
+    if (target === null) return; // cancelado
+    target = target.trim();
+    if (!target) return alert("Debes indicar una columna objetivo.");
+  }
+
+  trainingStatus.innerHTML = "Entrenando...";
+
+  try {
+    const resp = await fetch("/train_model", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        project_id: activeProject.id,
+        user: user.email,
+        target: target || null,       // null para no supervisados
+        test_size: 0.2,
+        random_state: 42
+      })
+    });
+    const data = await resp.json();
+
+    if (!data.success) {
+      trainingStatus.innerHTML = `<span style="color:#b00">✖ ${data.msg || "Error en entrenamiento"}</span>`;
+      return;
+    }
+
+    trainingStatus.innerHTML = `<span style="color:green">✔ ${data.msg}</span>`;
+
+    // Pintar métricas en #metrics
+    if (metricsBox) {
+      metricsBox.innerHTML = renderMetricsHTML(data.metrics);
+    }
+
+    // (opcional) mostrar preview de predicciones/resultados en #results si quieres
+    // Por ahora lo dejamos minimal.
+  } catch (err) {
+    console.error("Error entrenando:", err);
+    trainingStatus.innerHTML = `<span style="color:#b00">✖ Error de conexión</span>`;
+  }
+}
+
+function renderMetricsHTML(m) {
+  if (!m || !m.task) return "<p>Sin métricas.</p>";
+  if (m.task === "regression") {
+    return `
+      <h3>Métricas (Regresión)</h3>
+      <ul>
+        <li>MSE: ${m.mse?.toFixed?.(6) ?? m.mse}</li>
+        <li>MAE: ${m.mae?.toFixed?.(6) ?? m.mae}</li>
+        <li>R²: ${m.r2?.toFixed?.(6) ?? m.r2}</li>
+      </ul>`;
+  }
+  if (m.task === "classification") {
+    const labels = Object.keys(m.confusion_matrix || {}).map(Number).sort((a,b)=>a-b);
+    const cmRows = labels.map(i => {
+      const row = labels.map(j => m.confusion_matrix[i]?.[j] ?? 0).join(" | ");
+      return `${i} │ ${row}`;
+    }).join("<br>");
+    const lm = m.label_map ? `<p><small>label_map: ${JSON.stringify(m.label_map)}</small></p>` : "";
+    return `
+      <h3>Métricas (Clasificación)</h3>
+      <ul><li>Accuracy: ${(m.accuracy*100).toFixed(2)}%</li></ul>
+      <h4>Matriz de confusión</h4>
+      <code>${cmRows}</code>
+      ${lm}`;
+  }
+  if (m.task === "clustering") {
+    return `
+      <h3>Info (Clustering)</h3>
+      <ul>
+        <li>n_samples: ${m.n_samples}</li>
+        ${m.inertia !== undefined ? `<li>inercia: ${m.inertia}</li>` : ""}
+      </ul>`;
+  }
+  if (m.task === "dimensionality_reduction") {
+    const ev = (m.explained_variance_ratio || []).map((v,i)=>`PC${i+1}: ${(v*100).toFixed(2)}%`).join(", ");
+    return `
+      <h3>Info (PCA)</h3>
+      <p>Varianza explicada: ${ev || "N/D"}</p>`;
+  }
+  return "<p>Métricas no reconocidas.</p>";
+}
+
+if (trainBtn) {
+  trainBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    trainCurrentModel();
+  });
 }
 
 

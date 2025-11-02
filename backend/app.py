@@ -13,10 +13,12 @@
 # 200 (OK), 201 (Created: cuando se crea un nuevo recurso), 204 (No content: no hay contenido para devolver)
 # 400 (Bad Request: datos inválidos), 401 (No autenticado), 403 (Forbidden: prohibido), 404 (Not found), 500(Internal Server Error)
 from flask import Flask, request, jsonify, send_from_directory
-import json, os
+import json
+import os
 from datetime import datetime
 import pandas as pd
 import numpy as np
+import sys
 
 # Inicialización del servidor con ruta de archivos estáticos
 app = Flask(__name__, static_folder="../frontend", static_url_path="/")
@@ -28,6 +30,24 @@ def serve_index():
 
 # Directorio base '/backend'
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Soportar dos escenarios:
+# 1) app.py en la raíz (algorithms está en BASE_DIR)
+# 2) app.py dentro de backend/ (algorithms está en el padre)
+CANDIDATES = [BASE_DIR, os.path.dirname(BASE_DIR)]
+for p in CANDIDATES:
+    if p and p not in sys.path:
+        sys.path.insert(0, p)
+
+# ahora los imports directos del paquete algorithms funcionan
+from algorithms.LinearRegression import LinearRegression
+from algorithms.LogisticRegression import LogisticRegression
+from algorithms.Perceptron import Perceptron
+from algorithms.DecisionTreeClassifier import DecisionTreeClassifier
+from algorithms.NaiveBayes import NaiveBayes
+from algorithms.MLP import MLPClassifier
+from algorithms.KMeans import KMeans
+from algorithms.PCA import PCA
 
 # ------------------- CONFIG JSON'S -------------------
 # rutas con los json
@@ -601,7 +621,7 @@ def recommend_model():
 # ------------------- Seleccionar Modelo -------------------
 # parametros por defecto de los modelos
 DEFAULT_PARAMS = {
-    "linear_regression":   {"learning_rate": 0.01, "n_iterations": 1000, "fit_intercept": True},
+    "linear_regression":   {"learning_rate": 0.001, "n_iterations": 20000, "fit_intercept": True},
     "logistic_regression": {"learning_rate": 0.1,  "n_iterations": 2000, "fit_intercept": True, "decision_threshold": 0.5},
     "perceptron":          {"learning_rate": 1.0,  "n_iterations": 1000, "fit_intercept": True},
     "decision_tree":       {"criterion": "gini",   "max_depth": None, "min_samples_split": 2},
@@ -647,6 +667,265 @@ def api_models_select():
         "project": project
     }), 200
 
+# ------------------- Entrenar Modelo -------------------
+def _train_test_split(X, y=None, test_size=0.2, seed=42):
+    rng = np.random.default_rng(seed)
+    idx = np.arange(len(X))
+    rng.shuffle(idx)
+    n_test = max(1, int(len(X) * test_size))
+    test_idx = idx[:n_test]
+    train_idx = idx[n_test:]
+    if y is None:
+        return X.iloc[train_idx], X.iloc[test_idx], None, None
+    return X.iloc[train_idx], X.iloc[test_idx], y.iloc[train_idx], y.iloc[test_idx]
+
+def _is_supervised(alg_key):
+    return alg_key in {"linear_regression","logistic_regression","perceptron","decision_tree","naive_bayes","mlp"}
+
+def _task_kind(alg_key):
+    if alg_key == "linear_regression":
+        return "regression"
+    if alg_key in {"logistic_regression","perceptron","decision_tree","naive_bayes","mlp"}:
+        return "classification"
+    if alg_key == "kmeans":
+        return "clustering"
+    if alg_key == "pca":
+        return "dimensionality_reduction"
+    return "unknown"
+
+@app.route("/train_model", methods=["POST"])
+def train_model():
+
+    data = request.get_json() or {}
+    project_id = data.get("project_id")
+    user = data.get("user")
+    target = data.get("target")            # requerido para modelos supervisados
+    test_size = float(data.get("test_size", 0.2))
+    random_state = int(data.get("random_state", 42))
+
+    if not project_id or not user:
+        return jsonify({"success": False, "msg": "Faltan parámetros (project_id, user)"}), 400
+
+    # localizar proyecto
+    project = next((p for p in projects if p["id"] == project_id and p["user"] == user), None)
+    if not project:
+        return jsonify({"success": False, "msg": "Proyecto no encontrado"}), 404
+
+    if "model_cfg" not in project:
+        return jsonify({"success": False, "msg": "No hay modelo seleccionado aún"}), 400
+
+    cfg = project["model_cfg"]
+    alg_key = cfg.get("algorithm_key")
+    params = cfg.get("params", {})
+    kind = _task_kind(alg_key)
+
+    dataset_path = project.get("dataset_path")
+    if not dataset_path or not os.path.exists(dataset_path):
+        return jsonify({"success": False, "msg": "Dataset no encontrado para este proyecto"}), 404
+
+    try:
+        df = pd.read_csv(dataset_path)
+    except Exception as e:
+        return jsonify({"success": False, "msg": f"Error leyendo dataset: {e}"}), 400
+
+    # Seleccionar columnas numéricas para X
+    num_cols = df.select_dtypes(include=["number"]).columns.tolist()
+
+    model = None
+    try:
+        if alg_key == "linear_regression":
+            model = LinearRegression(**params)
+        elif alg_key == "logistic_regression":
+            model = LogisticRegression(**params)
+        elif alg_key == "perceptron":
+            model = Perceptron(**params)
+        elif alg_key == "decision_tree":
+            model = DecisionTreeClassifier(**params)
+        elif alg_key == "naive_bayes":
+            model = NaiveBayes(**params)
+        elif alg_key == "mlp":
+            model = MLPClassifier(**params)
+        elif alg_key == "kmeans":
+            model = KMeans(**params)
+        elif alg_key == "pca":
+            model = PCA(**params)
+        else:
+            return jsonify({"success": False, "msg": f"Algoritmo no soportado: {alg_key}"}), 400
+    except Exception as e:
+        return jsonify({"success": False, "msg": f"Error inicializando el modelo: {e}"}), 400
+
+    metrics = {}
+    preview = {}
+
+    try:
+        if kind in {"regression","classification"}:
+            if not target or target not in df.columns:
+                return jsonify({"success": False, "msg": "Debes indicar la columna objetivo (target) válida"}), 400
+
+            # y y X
+            y = df[target]
+            # asegurarnos de no meter target en X
+            feature_candidates = [c for c in num_cols if c != target]
+            if not feature_candidates:
+                return jsonify({"success": False, "msg": "No hay columnas numéricas para entrenar (X)"}), 400
+            X = df[feature_candidates]
+
+            # codificar y si no es numérica en clasificación
+            y_encoded = y.copy()
+            label_map = None
+            if kind == "classification" and not pd.api.types.is_numeric_dtype(y):
+                classes = sorted(y.astype(str).unique().tolist())
+                label_map = {c:i for i,c in enumerate(classes)}
+                y_encoded = y.astype(str).map(label_map)
+
+            # split
+            Xtr, Xte, ytr, yte = _train_test_split(X, y_encoded, test_size=test_size, seed=random_state)
+
+            # fit
+            model.fit(Xtr.values, ytr.values if ytr is not None else None)
+
+            # predict y métricas
+            # intentamos predict; si no existe, para algunas implementaciones de regresión lineal puede ser predict(X)
+            yhat = None
+            if hasattr(model, "predict"):
+                yhat = model.predict(Xte.values)
+            else:
+                # fallback mínimo
+                return jsonify({"success": False, "msg": "El modelo no expone método predict"}), 400
+
+            yhat = np.array(yhat).reshape(-1)
+
+            if kind == "regression":
+                # métricas regresión
+                y_true = yte.values.astype(float)
+                mse = float(np.mean((yhat - y_true)**2))
+                mae = float(np.mean(np.abs(yhat - y_true)))
+                # R2
+                ss_res = float(np.sum((y_true - yhat)**2))
+                ss_tot = float(np.sum((y_true - np.mean(y_true))**2)) or 1.0
+                r2 = 1.0 - ss_res/ss_tot
+                metrics = {"task":"regression","mse":mse,"mae":mae,"r2":r2}
+                if alg_key == "linear_regression" and hasattr(model, "weights"):
+                    w = np.asarray(model.weights, dtype=float).ravel().tolist()
+                    if getattr(model, "fit_intercept", True):
+                        intercept = float(w[0]); coefs = [float(c) for c in w[1:]]
+                    else:
+                        intercept = 0.0;        coefs = [float(c) for c in w]
+                    # mapea coeficientes a nombres de columnas
+                    metrics["intercept"] = intercept
+                    metrics["coefficients"] = dict(zip(feature_candidates, coefs))
+                    # pista de normalización (por transparencia)
+                    if hasattr(model, "normalize"):
+                        metrics["normalized_inputs"] = bool(model.normalize)
+
+            else:
+                # métricas clasificación (accuracy + matriz de confusión)
+                y_true = yte.values.astype(int)
+                y_pred = yhat.astype(int)
+                acc = float(np.mean(y_true == y_pred))
+                # matriz de confusión compacta
+                labels = np.unique(np.concatenate([y_true, y_pred]))
+                cm = {int(lbl): {int(lbl2): int(np.sum((y_true==lbl)&(y_pred==lbl2))) for lbl2 in labels} for lbl in labels}
+                # si hubo label_map, incluirlo
+                if label_map:
+                    metrics["label_map"] = label_map
+                metrics.update({"task":"classification","accuracy":acc,"confusion_matrix":cm})
+
+            # preview de primeras filas de test
+            prev_k = min(10, len(Xte))
+            preview = {
+                "columns": ["y_true","y_pred"] + feature_candidates[:10],
+                "rows": [
+                    [ (None if yte is None else (int(yte.iloc[i]) if kind=="classification" else float(yte.iloc[i]))),
+                      (int(yhat[i]) if kind=="classification" else float(yhat[i])) ]
+                    + [ (None if pd.isna(Xte.iloc[i,j]) else float(Xte.iloc[i,j])) for j in range(min(10, Xte.shape[1])) ]
+                    for i in range(prev_k)
+                ]
+            }
+
+        elif kind == "clustering":
+            # solo X numéricas
+            if not num_cols:
+                return jsonify({"success": False, "msg": "No hay columnas numéricas para K-Means"}), 400
+            X = df[num_cols]
+            model.fit(X.values)
+            if hasattr(model, "predict"):
+                labels = model.predict(X.values)
+            else:
+                # algunos KMeans guardan labels_ tras fit
+                labels = getattr(model, "labels_", None)
+            labels = np.array(labels) if labels is not None else np.zeros(len(X), dtype=int)
+            # métrica mínima (inercia si existe)
+            inertia = getattr(model, "inertia_", None)
+            metrics = {"task":"clustering","n_samples": int(len(X))}
+            if inertia is not None:
+                metrics["inertia"] = float(inertia)
+            # preview
+            prev_k = min(10, len(X))
+            preview = {
+                "columns": ["cluster"] + num_cols[:10],
+                "rows": [
+                    [int(labels[i])] + [ (None if pd.isna(X.iloc[i,j]) else float(X.iloc[i,j])) for j in range(min(10, X.shape[1])) ]
+                    for i in range(prev_k)
+                ]
+            }
+
+        elif kind == "dimensionality_reduction":
+            if not num_cols:
+                return jsonify({"success": False, "msg": "No hay columnas numéricas para PCA"}), 400
+            X = df[num_cols]
+            # intentamos fit_transform si existe
+            if hasattr(model, "fit_transform"):
+                Z = model.fit_transform(X.values)
+            else:
+                model.fit(X.values)
+                Z = model.transform(X.values) if hasattr(model, "transform") else X.values
+            # var explicada si la hay
+            explained = getattr(model, "explained_variance_ratio_", None)
+            if explained is not None:
+                explained = [float(v) for v in np.array(explained).ravel().tolist()]
+            metrics = {
+                "task":"dimensionality_reduction",
+                "explained_variance_ratio": explained
+            }
+            prev_k = min(10, Z.shape[0])
+            prev_m = min(5, Z.shape[1])
+            preview = {
+                "columns": [f"PC{i+1}" for i in range(prev_m)],
+                "rows": [
+                    [ float(Z[i,j]) for j in range(prev_m) ]
+                    for i in range(prev_k)
+                ]
+            }
+
+        else:
+            return jsonify({"success": False, "msg": f"Tarea no soportada para {alg_key}"}), 400
+
+    except Exception as e:
+        return jsonify({"success": False, "msg": f"Error durante el entrenamiento: {e}"}), 400
+    
+    # info de sustentación
+    metrics["n_train"] = int(len(Xtr))
+    metrics["n_test"]  = int(len(Xte))
+    metrics["features_used"] = feature_candidates
+
+
+    # guarda un pequeño rastro en el proyecto (sin serializar el modelo)
+    project["last_train"] = {
+        "at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "algorithm_key": alg_key,
+        "target": target,
+        "metrics": metrics
+    }
+    with open(PROJECTS_FILE, "w") as f:
+        json.dump(projects, f, indent=4)
+
+    return jsonify({
+        "success": True,
+        "msg": "Entrenamiento completado",
+        "metrics": metrics,
+        "preview": preview
+    }), 200
 
 
 # inicialización del servidor
