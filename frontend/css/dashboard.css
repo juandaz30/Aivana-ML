@@ -57,8 +57,9 @@ main {
 section {
     background: #fff;
     padding: 1.5rem;
-    border-radius: 10px;
-    box-shadow: 0px 4px 10px rgba(0,0,0,0.1);
+    border-radius: 12px;
+    box-shadow: 0px 6px 18px rgba(0,0,0,0.08);
+    animation: fadeIn .25s ease both;
 }
 
 section h2 {
@@ -80,25 +81,36 @@ label {
 
 input, textarea, select {
     padding: 10px;
-    border: 1px solid #ccc;
-    border-radius: 8px;
+    border: 1px solid #d8dee4;
+    border-radius: 10px;
     font-size: 14px;
     width: 100%;
+    transition: border-color .2s, box-shadow .2s;
+    background: #fff;
+}
+
+input:focus, textarea:focus, select:focus {
+    outline: none;
+    border-color: #8ab4f8;
+    box-shadow: 0 0 0 3px rgba(138,180,248,.25);
 }
 
 button {
-    padding: 10px;
+    padding: 10px 14px;
     background: #457b9d;
     color: #fff;
     border: none;
-    border-radius: 8px;
+    border-radius: 10px;
     font-size: 15px;
     cursor: pointer;
-    transition: background 0.3s;
+    transition: transform .08s ease, background .25s;
 }
 
 button:hover {
     background: #1d3557;
+}
+button:active {
+    transform: translateY(1px);
 }
 
 /* Tabla proyectos */
@@ -106,6 +118,8 @@ table {
     width: 100%;
     border-collapse: collapse;
     margin-top: 1rem;
+    border-radius: 10px;
+    overflow: hidden;
 }
 
 table thead {
@@ -115,13 +129,13 @@ table thead {
 
 table th, table td {
     padding: 12px;
-    border: 1px solid #ddd;
+    border: 1px solid #e6edf3;
     text-align: left;
     font-size: 14px;
 }
 
 table tr:nth-child(even) {
-    background: #f2f2f2;
+    background: #f7fbff;
 }
 
 table tr:hover {
@@ -137,8 +151,8 @@ table tr:hover {
 
 #preprocessResult {
     background: #f9fafc;
-    border: 1px solid #ddd;
-    border-radius: 10px;
+    border: 1px solid #e6edf5;
+    border-radius: 12px;
     padding: 1rem;
     margin-top: 1rem;
 }
@@ -149,9 +163,150 @@ table tr:hover {
 }
 
 #preprocessResult li {
-    margin-bottom: 5px;
+    margin-bottom: 6px;
 }
 
+/* ---------- NUEVO: Tarjetas y estilos polish para mensajes ---------- */
+
+.panel {
+    background: #f8fbff;
+    border: 1px solid #e6edf5;
+    border-radius: 12px;
+    padding: 14px;
+    box-shadow: 0 4px 14px rgba(13, 42, 76, 0.06);
+}
+
+.panel + .panel { margin-top: 10px; }
+
+.panel-title {
+    font-weight: 700;
+    color: #1d3557;
+    margin-bottom: 8px;
+}
+
+/* Recomendaciones de modelo */
+#model-recommendations {
+    margin-top: 12px;
+}
+
+#model-recommendations ul {
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 12px;
+    padding: 0;
+}
+
+#model-recommendations li {
+    background: #ffffff;
+    border: 1px solid #e6edf5;
+    border-radius: 12px;
+    padding: 12px;
+    box-shadow: 0 6px 16px rgba(0,0,0,.06);
+    transition: transform .12s ease, box-shadow .2s;
+    animation: fadeIn .25s ease both;
+}
+
+#model-recommendations li:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 22px rgba(0,0,0,.08);
+}
+
+#model-recommendations li b {
+    color: #1d3557;
+}
+
+#model-recommendations li small {
+    color: #5b6b7a;
+}
+
+/* Chips */
+.chip {
+    display: inline-block;
+    font-size: 12px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid #b6dbff;
+    background: #e9f5ff;
+    color: #114c7f;
+    margin-left: 8px;
+}
+
+/* Estado de entrenamiento */
+#trainingStatus {
+    margin-top: 12px;
+}
+
+.status {
+    border-left: 4px solid #457b9d;
+    background: #f3f8ff;
+    padding: 10px 12px;
+    border-radius: 10px;
+    color: #2c3e50;
+    box-shadow: 0 3px 10px rgba(0,0,0,.04);
+    animation: fadeIn .25s ease both;
+}
+
+.status.success {
+    border-left-color: #2a9d8f;
+    background: #f0fbf7;
+}
+
+.status.error {
+    border-left-color: #e63946;
+    background: #fff5f5;
+}
+
+.status.info {
+    border-left-color: #457b9d;
+    background: #f3f8ff;
+}
+
+/* Métricas y resultados */
+#metrics { margin-top: 12px; }
+
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+}
+
+.metric-card {
+    background: #ffffff;
+    border: 1px solid #e6edf5;
+    border-radius: 12px;
+    padding: 12px;
+    box-shadow: 0 6px 16px rgba(0,0,0,.06);
+    animation: fadeIn .25s ease both;
+}
+
+.metric-label {
+    color: #577590;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    margin-bottom: 6px;
+}
+
+.metric-value {
+    font-weight: 800;
+    font-size: 1.35rem;
+    color: #1d3557;
+}
+
+input.input-error {
+  border-color: #e63946 !important;
+  box-shadow: 0 0 0 3px rgba(230,57,70,.15) !important;
+}
+
+
+/* Animaciones suaves */
+.fade-in { animation: fadeIn .25s ease both; }
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
 
 .hidden {
     display: none;

@@ -16,10 +16,10 @@
                 <li><a href="#train-model">Entrenamiento</a></li>
                 <li><a href="#results">Resultados</a></li>
                 <li><a href="index.html">Cerrar sesión</a></li>
+                <li><a href="#predict">Predecir</a></li>
             </ul>
         </nav>
     </header>
-
     <main>
         <!-- Crear proyecto -->
         <section id="create-project">
@@ -27,14 +27,11 @@
             <form id="projectForm">
                 <label for="projectName">Nombre del proyecto</label>
                 <input id="projectName" name="projectName" type="text" placeholder="Ej: Predicción de ventas" required>
-
                 <label for="projectDesc">Descripción</label>
                 <textarea id="projectDesc" name="projectDesc" placeholder="Descripción breve del proyecto"></textarea>
-
                 <button type="submit">Crear proyecto</button>
             </form>
         </section>
-
         <section id="projects-list">
             <h2>Mis proyectos</h2>
             <table>
@@ -47,11 +44,10 @@
                     </tr>
                 </thead>
                 <tbody id="projectsTableBody">
-                    <!-- Aquí JS insertará los proyectos -->
+                    <!-- Proyectos agregados via JS -->
                 </tbody>
             </table>
         </section>
-
         <!-- Subir dataset -->
         <section id="upload-dataset" class="hidden">
             <h2>Cargar dataset</h2>
@@ -60,7 +56,6 @@
                 <input id="datasetFile" type="file" accept=".csv" required>
                 <button type="submit">Subir dataset</button>
             </form>
-
             <div id="datasetInfo" class="hidden">
                 <h3>Vista previa del dataset</h3>
                 <table id="datasetPreviewTable">
@@ -68,8 +63,9 @@
                     <tbody id="datasetPreviewBody"></tbody>
                 </table>
             </div>
+            <button id="preprocessBtn" style="margin-top: 10px;">Preprocesar datos</button>
+            <div id="preprocessResult" class="hidden"></div>
         </section>
-
         <!-- Seleccionar modelo -->
         <section id="select-model" class="hidden">
             <h2>Seleccionar modelo</h2>
@@ -87,31 +83,48 @@
                     <option value="kmeans">K-Means</option>
                 </select>
                 <button type="submit">Seleccionar</button>
-                <div id="model-recommendations"></div>
             </form>
+            <button type="button" id="btnRecommend" style="margin-top: 10px;">Sugerir modelo</button>
+            <div id="model-recommendations" style="margin-top: 10px;"></div>
         </section>
-
         <!-- Entrenar modelo -->
         <section id="train-model" class="hidden">
             <h2>Entrenamiento</h2>
             <button id="trainButton">Entrenar modelo</button>
             <div id="trainingStatus">
-                <!-- Aquí se mostrarán mensajes de estado y progreso -->
+                <!-- Mensajes de estado de entrenamiento -->
             </div>
         </section>
-
         <!-- Resultados -->
         <section id="results" class="hidden">
             <h2>Resultados</h2>
             <div id="metrics">
-                <!-- Aquí se mostrarán métricas numéricas (accuracy, etc.) -->
+                <!-- Métricas numéricas (accuracy, etc.) -->
             </div>
             <div id="charts">
-                <!-- Aquí se mostrarán gráficos -->
+                <!-- Gráficos -->
             </div>
         </section>
-    </main>
+        <!-- Predecir -->
+        <section id="predict" class="hidden">
+            <h2>Predecir</h2>
 
+            <div id="predictInfo" class="panel fade-in">
+                Entrena un modelo para habilitar la predicción con nuevos datos.
+            </div>
+
+            <form id="predictForm" class="hidden" style="margin-top:12px;">
+                <!-- JS generará inputs según features_used -->
+                <div id="predictInputs" style="display:grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap:12px;"></div>
+                <div style="margin-top:10px;">
+                <button type="submit" id="btnPredict">Predecir</button>
+                </div>
+            </form>
+
+            <div id="predictResult" class="hidden panel" style="margin-top:12px;"></div>
+        </section>
+
+    </main>
     <script src="js/dashboard.js"></script>
 </body>
 </html>

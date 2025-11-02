@@ -1,876 +1,737 @@
-// espera a que todos los elementos del DOM hayan cargado antes de ejecutar
-window.addEventListener("DOMContentLoaded", () => {
-    // intenta buscar el elemento user creado en el login
-    const user = JSON.parse(localStorage.getItem("user"));
+// dashboard.js — versión compacta, comentada y lista para sobrescribir
 
-    if (!user) {
-        // Si no hay sesión (no hay usuario guardado el el LocalStore) → regresar al login
-        alert("Debes iniciar sesión primero.");
-        window.location.href = "index.html";
-    } else {
-        console.log("Sesión activa:", user);
-        // busca el elemento h1 con sintaxis de selector CSS ("header h1")
-        const header = document.querySelector("header h1");
-        // lo ajusta con el nombre del usuario
-        header.textContent = `Aivana - Bienvenido, ${user.name}`;
-        // muestra los proyectos del usuario
-        loadProjects(user.email);
-    }
-});
+"use strict";
 
-// obtiene el formulario de creación de proyectos y el cuerpo de la tabla donde se mostrarán los proyectos
-const projectForm = document.getElementById("projectForm");
-const projectsTableBody = document.getElementById("projectsTableBody");
+/* ========= Helpers de DOM y fetch ========= */
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-// ------------------- CREAR PROYECTO -------------------
-// función que se ejecutará al presionar el botón 'Crear Proyecto'
-projectForm.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    // obtiene los valores de los campos en el formulario
-    const name = document.getElementById("projectName").value;
-    const description = document.getElementById("projectDesc").value;
-    const user = JSON.parse(localStorage.getItem("user"));
-    // segunda verificación de sesión activa (por si acaso)
-    if (!user) {
-        alert("No hay sesión activa.");
-        return;
-    }
+const apiFetch = (url, options = {}) =>
+  fetch(url, options).then(async (r) => {
+    let data = null;
+    try { data = await r.json(); } catch (_) { /* sin cuerpo JSON */ }
+    return data ?? { success: false, msg: "Respuesta inválida del servidor" };
+  });
 
-    // guarda la respuesta del servidor a la petición (fecth) POST de crear proyecto
-    try {
-        const resp = await fetch("http://127.0.0.1:5000/create_project", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name, description, user: user.email })
-        });
-        // respuesta del servidor en formato json
-        const data = await resp.json();
+/* ========= Referencias globales ========= */
+// Header / sesión
+const headerTitle = $("header h1");
+const logoutLink = $("a[href='index.html']");
 
-        // lee la respuesta del servidor a la petición
-        if (data.success) {
-            addProjectToTable(data.project);
-            // resetea los campos del formulario
-            projectForm.reset();
-        }
-        alert(data.msg);
-    } catch (err) {
-        console.error("Error al crear proyecto:", err);
-    }
-});
+// Secciones
+const sectionCreate = $("#create-project");
+const sectionProjects = $("#projects-list");
+const sectionUpload = $("#upload-dataset");
+const sectionSelect = $("#select-model");
+const sectionTrain  = $("#train-model");
+const sectionResults = $("#results");
+const sectionPredict = $("#predict");
 
-// ------------------- FUNCIONES AUXILIARES -------------------
-// ------------------- ACCIÓN CON EL BOTÓN VER EN MIS PROYECTOS -------------------
-async function viewProject(project) {
-    // guarda el proyecto activo el el localStorage del navegador
-    localStorage.setItem("activeProject", JSON.stringify(project));
+// Formularios / Controles
+const projectForm = $("#projectForm");
+const projectsTableBody = $("#projectsTableBody");
 
-    // muestra las secciones bloqueadas (limitadas antes de crear un proyecto)
-    document.getElementById("upload-dataset").classList.remove("hidden");
-    document.getElementById("select-model").classList.remove("hidden");
-    document.getElementById("train-model").classList.remove("hidden");
-    document.getElementById("results").classList.remove("hidden");
+// Dataset
+const datasetForm        = $("#datasetForm");
+const datasetFileInput   = $("#datasetFile");
+const datasetInfo        = $("#datasetInfo");
+const datasetPreviewHead = $("#datasetPreviewHead");
+const datasetPreviewBody = $("#datasetPreviewBody");
 
-    // personaliza el título (h2) de la sección 'cargar dataset' con el nombre del proyecto
-    const title = document.querySelector("#upload-dataset h2");
-    if (title) title.textContent = `Cargar dataset para: ${project.name}`;
+// Preprocesar
+let preprocessBtn = $("#preprocessBtn");        // puede no existir en HTML; lo creamos si falta
+let preprocessResultDiv = $("#preprocessResult"); // idem
 
-    await loadAndShowProjectDataset(project);
+// Seleccionar modelo
+const modelForm = $("#modelForm");
+const modelSelect = $("#modelSelect");
+const modelRecDiv = $("#model-recommendations");
+let recommendBtn = $("#btnRecommend"); // lo creamos si no existe
+
+// Entrenar
+const trainButton = $("#trainButton");
+const trainingStatus = $("#trainingStatus");
+
+// Resultados
+const metricsBox = $("#metrics");
+const chartsBox = $("#charts");
+
+// Predecir (nueva sección)
+const predictInfo   = $("#predictInfo");
+const predictForm   = $("#predictForm");
+const predictInputs = $("#predictInputs");
+const predictResult = $("#predictResult");
+
+/* ========= Utilidades de UI ========= */
+function show(el) { el?.classList.remove("hidden"); }
+function hide(el) { el?.classList.add("hidden"); }
+function setText(el, text) { if (el) el.textContent = text; }
+
+/** Limpia todo lo que depende del proyecto activo */
+function clearProjectDependentUI() {
+  // Dataset preview
+  if (datasetPreviewHead) datasetPreviewHead.innerHTML = "";
+  if (datasetPreviewBody) datasetPreviewBody.innerHTML = "";
+  if (datasetInfo) hide(datasetInfo);
+  setDatasetNameLabel(null);
+
+  // Recomendaciones / selección
+  if (modelRecDiv) modelRecDiv.innerHTML = "";
+  if (modelForm) modelForm.reset?.();
+  if (modelSelect) modelSelect.value = modelSelect.value || "";
+
+  // Entrenamiento / resultados
+  if (trainingStatus) trainingStatus.innerHTML = "";
+  if (metricsBox) metricsBox.innerHTML = "";
+  if (chartsBox) chartsBox.innerHTML = "";
+
+  // Predecir
+  if (predictInputs) predictInputs.innerHTML = "";
+  if (predictResult) { predictResult.innerHTML = ""; hide(predictResult); }
+  if (predictForm) hide(predictForm);
+  if (predictInfo) { setText(predictInfo, "Entrena un modelo para habilitar la predicción con nuevos datos."); show(predictInfo); }
+  hide(sectionPredict);
 }
 
-// Carga el dataset del proyecto activo (si existe) y lo pinta en la vista previa.
-// Prioriza el dataset limpio (si ya pasaste por preprocesamiento), de lo contrario usa el dataset original.
-// Si no hay dataset, deja la sección limpia.
-async function loadAndShowProjectDataset(project) {
-    const user = JSON.parse(localStorage.getItem("user"));
-    if (!user) return;
-
-    // Si el proyecto ya trae ruta de dataset guardada, intentamos leerlo
-    const hasDatasetPath = !!project.dataset_path;
-    const datasetInfo = document.getElementById("datasetInfo");
-    const datasetPreviewHead = document.getElementById("datasetPreviewHead");
-    const datasetPreviewBody = document.getElementById("datasetPreviewBody");
-
-    // Limpia la UI antes de pintar
-    if (datasetPreviewHead) datasetPreviewHead.innerHTML = "";
-    if (datasetPreviewBody) datasetPreviewBody.innerHTML = "";
-    if (datasetInfo) datasetInfo.classList.add("hidden");
-
-    if (!hasDatasetPath) {
-        // No hay dataset asociado aún → no mostramos nada
-        console.log("Este proyecto no tiene dataset cargado todavía.");
-        return;
-    }
-
-    try {
-        // El backend ya expone /get_clean_dataset y devuelve primeras 5 filas + columns
-        const resp = await fetch(`/get_clean_dataset?project_id=${project.id}&user=${encodeURIComponent(user.email)}`);
-        const data = await resp.json();
-
-        if (data && data.success) {
-            const fileName = project.dataset_name || (project.dataset_path || "").split("/").pop();
-            setDatasetNameLabel(fileName);
-            renderDatasetPreview(data.columns, data.preview);
-        } else {
-            // Si por alguna razón no hay limpio/preview, avisamos suave
-            console.warn("No se pudo obtener vista previa del dataset:", data?.msg || "Respuesta inválida");
-        }
-    } catch (err) {
-        console.error("Error cargando el dataset del proyecto:", err);
-    }
+/** Cambia el título del bloque de preview */
+function setDatasetNameLabel(name) {
+  const h3 = $("#upload-dataset h3");
+  if (!h3) return;
+  h3.textContent = name ? `Vista previa del dataset: ${name}` : "Vista previa del dataset";
 }
 
+/** Render de la tabla de preview */
+function renderDatasetPreview(columns, rows) {
+  if (!columns?.length || !rows?.length) {
+    hide(datasetInfo);
+    return;
+  }
+  datasetPreviewHead.innerHTML = "";
+  datasetPreviewBody.innerHTML = "";
 
-// ------------------- FUNCIÓN PARA EDITAR PROYECTO INLINE -------------------
-function enableEditMode(event, project) {
-    // guarda la fila del proyecto que se va a editar (donde hizo clic)
-    const row = event.target.closest("tr");
+  const headRow = document.createElement("tr");
+  columns.forEach((c) => {
+    const th = document.createElement("th");
+    th.textContent = c;
+    headRow.appendChild(th);
+  });
+  datasetPreviewHead.appendChild(headRow);
 
-    // si se está editando no hace nada, si no, vuelve el campo editable
-    if (row.classList.contains("editing")) return;
-    row.classList.add("editing");
+  rows.forEach((row) => {
+    const tr = document.createElement("tr");
+    columns.forEach((c) => {
+      const td = document.createElement("td");
+      const v = row[c];
+      td.textContent = v === null || v === undefined ? "" : v;
+      tr.appendChild(td);
+    });
+    datasetPreviewBody.appendChild(tr);
+  });
 
-    // guarda los elementos del nombre y la descripción del proyecto
-    const nameCell = row.children[0];
-    const descCell = row.children[1];
-    // guarda el elemento del boton 'Editar'
-    const editBtn = row.querySelector(".edit-btn");
-
-    // guarda el nombre antes de que el usuario lo edite
-    const oldName = nameCell.textContent.trim();
-    // si la descripción es '-' (valor por defecto) se asigna texto vacío para la edición
-    const oldDesc = descCell.textContent === "-" ? "" : descCell.textContent.trim();
-
-    // reemplaza el contenido de los campos visibles por campos editables
-    nameCell.innerHTML = `<input type="text" class="edit-name" value="${oldName}" 
-        style="width:95%; padding:6px; border:1px solid #ccc; border-radius:6px;">`;
-    descCell.innerHTML = `<input type="text" class="edit-desc" value="${oldDesc}" 
-        style="width:95%; padding:6px; border:1px solid #ccc; border-radius:6px;">`;
-
-    // edita el nombre del botón 'Editar'
-    editBtn.textContent = "Guardar";
-
-    // crea el botón 'Cancelar'
-    const cancelBtn = document.createElement("button");
-    cancelBtn.textContent = "Cancelar";
-    cancelBtn.classList.add("cancel-btn");
-    // lo inserta justo después de 'Editar' ('Guardar' en este caso)
-    editBtn.after(cancelBtn);
-
-    // limpia eventos antiguos para evitar acumulación
-    editBtn.onclick = null;
-    cancelBtn.onclick = null;
-
-    // evento para el botón 'Guardar'
-    editBtn.onclick = async () => {
-        // guarda el nombre y la descripción nueva
-        const newName = row.querySelector(".edit-name").value.trim();
-        const newDesc = row.querySelector(".edit-desc").value.trim();
-        const user = JSON.parse(localStorage.getItem("user"));
-
-        // si no hay cambios entre el nombre nuevo y el antiguo, 'Guardar' actúa como 'Cancelar'
-        if (newName === oldName && (newDesc === oldDesc || newDesc === "-")) {
-            cancelBtn.click();
-            return;
-        // si en efecto hay cambios, oculta las propiedades del proyecto
-        } else{
-            document.getElementById("upload-dataset").classList.add("hidden");
-            document.getElementById("select-model").classList.add("hidden");
-            document.getElementById("train-model").classList.add("hidden");
-            document.getElementById("results").classList.add("hidden");
-        }
-        // si no puso nombre muestra advertencia
-        if (!newName) {
-            alert("El nombre del proyecto no puede estar vacío");
-            return;
-        }
-
-        // guarda la respuesta del servidor a la petición (fecth) POST de crear proyecto
-        try {
-            const resp = await fetch("http://127.0.0.1:5000/edit_project", {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    id: project.id,
-                    name: newName,
-                    description: newDesc,
-                    user: user.email
-                })
-            });
-            // respuesta del servidor en formato json
-            const data = await resp.json();
-
-            // si la respuesta fue exitosa
-            if (data.success) {
-                alert("Proyecto actualizado correctamente");
-                // actualiza la información del proyecto 
-                project.name = newName;
-                project.description = newDesc;
-                nameCell.textContent = newName;
-                descCell.textContent = newDesc || "-";
-                const activeProject = JSON.parse(localStorage.getItem("activeProject"));
-                if (activeProject && activeProject.id === project.id) {
-                    activeProject.name = newName;
-                    activeProject.description = newDesc;
-                    localStorage.setItem("activeProject", JSON.stringify(activeProject));
-                }
-            } else {
-                // restaura los nombres si la petición fue denegada
-                alert(data.msg);
-                nameCell.textContent = oldName;
-                descCell.textContent = oldDesc || "-";
-            }
-        } catch (err) {
-            // si hubo un error devuelve los cambios
-            console.error("Error al editar proyecto:", err);
-            alert("Error al guardar cambios del proyecto");
-            nameCell.textContent = oldName;
-            descCell.textContent = oldDesc || "-";
-        } finally {
-            // restaurar botones y deshabilita la opción de editar
-            row.classList.remove("editing");
-            editBtn.textContent = "Editar";
-            cancelBtn.remove();
-            //reinicia el bucle escuchando el botón 'Editar'
-            editBtn.onclick = (e) => enableEditMode(e, project);
-        }
-    };
-
-    // botón 'cancelar' durante la edición del proyecto: deja todo como estaba
-    cancelBtn.onclick = () => {
-        nameCell.textContent = oldName;
-        descCell.textContent = oldDesc || "-";
-        row.classList.remove("editing");
-        editBtn.textContent = "Editar";
-        cancelBtn.remove();
-        editBtn.onclick = (e) => enableEditMode(e, project);
-    };
+  show(datasetInfo);
 }
 
+/** Resumen bonito del preprocesamiento */
+function renderPreprocessSummary(summary, numericCols, categoricalCols) {
+  if (!preprocessResultDiv) {
+    preprocessResultDiv = document.createElement("div");
+    preprocessResultDiv.id = "preprocessResult";
+    sectionUpload.appendChild(preprocessResultDiv);
+  }
 
+  preprocessResultDiv.innerHTML = `
+    <div class="panel">
+      <div class="panel-title">Resumen del preprocesamiento</div>
+      <ul>
+        <li><b>Filas antes:</b> ${summary.filas_antes}</li>
+        <li><b>Filas después:</b> ${summary.filas_despues}</li>
+        <li><b>Columnas antes:</b> ${summary.columnas_antes}</li>
+        <li><b>Columnas después:</b> ${summary.columnas_despues}</li>
+        <li><b>Duplicados eliminados:</b> ${summary.duplicados_eliminados}</li>
+        <li><b>Columnas eliminadas:</b> ${Array.isArray(summary.columnas_eliminadas) && summary.columnas_eliminadas.length ? summary.columnas_eliminadas.join(", ") : "Ninguna"}</li>
+      </ul>
+      <p><b>Columnas numéricas:</b> ${numericCols?.length ? numericCols.join(", ") : "Ninguna"}</p>
+      <p><b>Columnas categóricas:</b> ${categoricalCols?.length ? categoricalCols.join(", ") : "Ninguna"}</p>
+    </div>
+  `;
+  show(preprocessResultDiv);
+}
 
-// ------------------- FUNCIÓN 'MADRE' PARA MOSTRAR PROYECTO EN MIS PROYECTOS Y HABILITAR SUS FUNCIONALIDADES -------------------
-function addProjectToTable(project) {
-    // crea una fila para insertar en la tabla de proyectos
-    const row = document.createElement("tr");
-    // crea los campos con información del proyecto y botones 'Ver', 'Editar' y 'Eliminar'
-    row.innerHTML = `
-        <td>${project.name}</td>
-        <td>${project.description || "-"}</td>
-        <td>${project.created_at}</td>
-        <td>
-            <button class="view-btn">Ver</button>
-            <button class="edit-btn">Editar</button>
-            <button class="delete-btn">Eliminar</button>
-        </td>
+/** Recarga preview desde el backend (dataset limpio) */
+async function refreshCleanPreview() {
+  const activeProject = JSON.parse(localStorage.getItem("activeProject") || "{}");
+  const user = JSON.parse(localStorage.getItem("user") || "{}");
+  if (!activeProject?.id || !user?.email) return;
+
+  const data = await apiFetch(`/get_clean_dataset?project_id=${activeProject.id}&user=${encodeURIComponent(user.email)}`);
+  if (data?.success) {
+    renderDatasetPreview(data.columns, data.preview);
+  }
+}
+
+/** Construye UI de predicción a partir de features_used */
+function enablePredictUI(features, task) {
+  if (!Array.isArray(features) || !features.length) {
+    hide(sectionPredict);
+    return;
+  }
+
+  show(sectionPredict);
+  hide(predictInfo);
+  show(predictForm);
+  predictInputs.innerHTML = "";
+  predictResult.innerHTML = "";
+  hide(predictResult);
+
+  features.forEach((f) => {
+    const wrap = document.createElement("div");
+    const id = `pred-${f}`;
+    wrap.innerHTML = `
+      <label for="${id}" style="font-weight:600">${f}</label>
+      <input id="${id}" name="${f}" type="number" step="any" placeholder="Valor para ${f}">
     `;
-    // agrega la fila creada a la tabla
-    projectsTableBody.appendChild(row);
+    predictInputs.appendChild(wrap);
+  });
 
-    // función que se ejecutará al presionar el botón 'Ver' en los proyectos agregados
-    row.querySelector(".view-btn").addEventListener("click", () => {
-        viewProject(project);
-    });
-    // función que se ejecutará al presionar el botón 'Editar' en los proyectos agregados
-    row.querySelector(".edit-btn").addEventListener("click", (e) => {
-        enableEditMode(e, project);
-    });
-
-    // función que se ejecutará al presionar el botón 'Eliminar' en los proyectos agregados
-    row.querySelector(".delete-btn").addEventListener("click", async () => {
-        // confirmación de eliminación
-        const confirmed = confirm(`¿Seguro que deseas eliminar "${project.name}"?`);
-        if (!confirmed) return;
-
-        // obtiene el usuario de la sesión
-        const user = JSON.parse(localStorage.getItem("user"));
-
-        try {
-            // guarda la respuesta del servidor a la petición (fecth) DELETE de eliminar un proyecto
-            const resp = await fetch("http://127.0.0.1:5000/delete_project", {
-                method: "DELETE",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ id: project.id, user: user.email })
-            });
-
-            // guarda la respuesta en formato json
-            const data = await resp.json();
-
-
-            if (data.success) {
-                alert("Proyecto eliminado correctamente");
-                row.remove(); // quitarlo de la tabla sin recargar
-                // oculta las propiedades del proyecto
-                document.getElementById("upload-dataset").classList.add("hidden");
-                document.getElementById("select-model").classList.add("hidden");
-                document.getElementById("train-model").classList.add("hidden");
-                document.getElementById("results").classList.add("hidden");
-            } else {
-                alert(data.msg);
-            }
-        } catch (err) {
-            // si hubo un error lanza advertencia
-            console.error("Error al eliminar proyecto:", err);
-            alert("Error al intentar eliminar el proyecto");
-        }
-    });
-}
-
-
-// ------------------- FUNCIÓN PARA MOSTRAR LOS PROYECTOS DEL USUARIO -------------------
-async function loadProjects(userEmail) {
-    try {
-        // guarda la respuesta del servidor a la petición (fecth) GET de obtener los proyectos
-        const resp = await fetch(`http://127.0.0.1:5000/get_projects?user=${encodeURIComponent(userEmail)}`); // lo que va después de ? es información adicionar para filtrar, ordenar o modificar la solicitud.
-        // respuesta del servidor en formato json
-        const data = await resp.json();
-
-        
-        if (data.success) {
-            // limpia los proyectos que haya en la tabla (evita duplicado)
-            projectsTableBody.innerHTML = ""; 
-            // agrega una fila por cada proyecto encontrado asociado al usuario
-            data.projects.forEach(addProjectToTable);
-        } else {
-            alert(data.msg);
-        }
-
-    } catch (err) {
-        console.error("Error al cargar proyectos:", err);
-    }
-}
-
-// ------------------- SUBIR DATASET -------------------
-const datasetForm = document.getElementById("datasetForm");
-const datasetFileInput = document.getElementById("datasetFile");
-const datasetInfo = document.getElementById("datasetInfo");
-const datasetPreviewHead = document.getElementById("datasetPreviewHead");
-const datasetPreviewBody = document.getElementById("datasetPreviewBody");
-
-// función al presionar el botón subir dataset
-datasetForm.addEventListener("submit", async (e) => {
+  predictForm.onsubmit = async (e) => {
     e.preventDefault();
-    // si no hay archivo subido
-    const file = datasetFileInput.files[0];
-    if (!file) {
-        alert("Por favor selecciona un archivo CSV.");
-        return;
-    }
-    // lee el proyecto y el usuario actual de la sesión
-    const activeProject = JSON.parse(localStorage.getItem("activeProject"));
-    const user = JSON.parse(localStorage.getItem("user"));
+    e.stopPropagation();
 
-    if (!activeProject) {
-        alert("Debes tener un proyecto activo antes de subir un dataset.");
-        return;
+    const activeProject = JSON.parse(localStorage.getItem("activeProject") || "{}");
+    const user = JSON.parse(localStorage.getItem("user") || "{}");
+    if (!activeProject?.id || !user?.email) {
+      alert("No hay proyecto o usuario activo.");
+      return;
     }
 
-    // guarda un formData (formato de archivos de pares clave/valor, sirve para almacenar archivos binarios) con la información que se va a mandar al backend
+    const inputs = {};
+    let hasError = false;
+    features.forEach((f) => {
+      const el = $(`#pred-${f}`);
+      const raw = el?.value?.trim?.() ?? "";
+      if (raw === "" || Number.isNaN(Number(raw))) {
+        el?.classList.add("input-error");
+        hasError = true;
+      } else {
+        el?.classList.remove("input-error");
+        inputs[f] = Number(raw);
+      }
+    });
+    if (hasError) { alert("Por favor completa todos los campos con valores numéricos válidos."); return; }
+
+    const data = await apiFetch("/predict_model", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ project_id: activeProject.id, user: user.email, inputs })
+    });
+
+    if (!data?.success) { alert(data?.msg || "No se pudo predecir."); return; }
+
+    let html = `<div class="panel-title">Resultado de la predicción</div>`;
+    if (data.task === "regression") {
+      html += `<p><b>Valor predicho:</b> <span class="chip">${data.prediction}</span></p>`;
+    } else if (data.task === "classification") {
+      html += `<p><b>Clase predicha:</b> <span class="chip">${data.prediction}</span></p>`;
+      if (data.proba && data.classes) {
+        html += `<p style="margin-top:8px;"><b>Probabilidades:</b></p><ul>`;
+        data.classes.forEach((c, i) => {
+          const p = data.proba[i];
+          html += `<li>${c}: ${(p * 100).toFixed(2)}%</li>`;
+        });
+        html += `</ul>`;
+      }
+    } else if (data.task === "clustering") {
+      html += `<p><b>Cluster asignado:</b> <span class="chip">${data.prediction}</span></p>`;
+    } else if (data.task === "dimensionality_reduction" && data.components) {
+      html += `<p><b>Componentes:</b> ${data.components.map((v,i)=>`PC${i+1}=${Number(v).toFixed(4)}`).join(", ")}</p>`;
+    } else {
+      html += `<p>Predicción completada.</p>`;
+    }
+
+    predictResult.innerHTML = html;
+    show(predictResult);
+  };
+}
+
+/* ========= Lógica de proyectos ========= */
+function addProjectToTable(project) {
+  const row = document.createElement("tr");
+  row.innerHTML = `
+    <td>${project.name}</td>
+    <td>${project.description || "-"}</td>
+    <td>${project.created_at}</td>
+    <td>
+      <button class="view-btn">Ver</button>
+      <button class="edit-btn">Editar</button>
+      <button class="delete-btn">Eliminar</button>
+    </td>
+  `;
+  projectsTableBody.appendChild(row);
+
+  // Ver
+  row.querySelector(".view-btn").addEventListener("click", () => viewProject(project));
+
+  // Editar inline
+  row.querySelector(".edit-btn").addEventListener("click", (e) => enableEditMode(e, project, row));
+
+  // Eliminar
+  row.querySelector(".delete-btn").addEventListener("click", async () => {
+    if (!confirm(`¿Seguro que deseas eliminar "${project.name}"?`)) return;
+    const user = JSON.parse(localStorage.getItem("user") || "{}");
+    const data = await apiFetch("/delete_project", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: project.id, user: user.email })
+    });
+    if (data?.success) {
+      alert("Proyecto eliminado correctamente");
+      row.remove();
+      hide(sectionUpload); hide(sectionSelect); hide(sectionTrain); hide(sectionResults); hide(sectionPredict);
+      clearProjectDependentUI();
+    } else {
+      alert(data?.msg || "No se pudo eliminar el proyecto");
+    }
+  });
+}
+
+async function loadProjects(userEmail) {
+  const data = await apiFetch(`/get_projects?user=${encodeURIComponent(userEmail)}`);
+  if (data?.success) {
+    projectsTableBody.innerHTML = "";
+    data.projects.forEach(addProjectToTable);
+  } else {
+    alert(data?.msg || "No se pudieron cargar los proyectos");
+  }
+}
+
+function viewProject(project) {
+  localStorage.setItem("activeProject", JSON.stringify(project));
+
+  // Limpiar UI dependiente y mostrar secciones principales
+  clearProjectDependentUI();
+  show(sectionUpload); show(sectionSelect); show(sectionTrain); show(sectionResults);
+
+  // Encabezado
+  setText(headerTitle, `Aivana - Bienvenido, ${JSON.parse(localStorage.getItem("user")||"{}").name || ""}`);
+
+  // Título dataset
+  setDatasetNameLabel(project.dataset_name || null);
+
+  // Si ya hay dataset, cargar preview automáticamente
+  if (project.dataset_path) {
+    const user = JSON.parse(localStorage.getItem("user") || "{}");
+    (async () => {
+      const data = await apiFetch(`/get_clean_dataset?project_id=${project.id}&user=${encodeURIComponent(user.email)}`);
+      if (data?.success) {
+        renderDatasetPreview(data.columns, data.preview);
+        // persistir el nombre si no está
+        if (!project.dataset_name) {
+          const parts = (project.dataset_path || "").split("/");
+          project.dataset_name = parts[parts.length - 1] || "dataset.csv";
+          localStorage.setItem("activeProject", JSON.stringify(project));
+          setDatasetNameLabel(project.dataset_name);
+        }
+      }
+    })();
+  }
+}
+
+/* ========= Editar proyecto inline ========= */
+function enableEditMode(event, project, row) {
+  row = row || event.target.closest("tr");
+  if (row.classList.contains("editing")) return;
+  row.classList.add("editing");
+
+  const nameCell = row.children[0];
+  const descCell = row.children[1];
+  const editBtn = row.querySelector(".edit-btn");
+
+  const oldName = nameCell.textContent.trim();
+  const oldDesc = descCell.textContent.trim() === "-" ? "" : descCell.textContent.trim();
+
+  nameCell.innerHTML = `<input type="text" class="edit-name" value="${oldName}" style="width:95%; padding:6px; border:1px solid #ccc; border-radius:6px;">`;
+  descCell.innerHTML = `<input type="text" class="edit-desc" value="${oldDesc}" style="width:95%; padding:6px; border:1px solid #ccc; border-radius:6px;">`;
+
+  editBtn.textContent = "Guardar";
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.textContent = "Cancelar";
+  cancelBtn.classList.add("cancel-btn");
+  editBtn.after(cancelBtn);
+
+  editBtn.onclick = async () => {
+    const newName = row.querySelector(".edit-name").value.trim();
+    const newDesc = row.querySelector(".edit-desc").value.trim();
+    const user = JSON.parse(localStorage.getItem("user") || "{}");
+
+    if (!newName) { alert("El nombre del proyecto no puede estar vacío"); return; }
+
+    // Si no hay cambios, cancelar
+    if (newName === oldName && (newDesc === oldDesc || newDesc === "-")) {
+      cancelBtn.click(); return;
+    }
+
+    // Oculta secciones si cambias el nombre (para evitar incoherencias)
+    hide(sectionUpload); hide(sectionSelect); hide(sectionTrain); hide(sectionResults); hide(sectionPredict);
+    clearProjectDependentUI();
+
+    const data = await apiFetch("/edit_project", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: project.id, name: newName, description: newDesc, user: user.email })
+    });
+    if (data?.success) {
+      alert("Proyecto actualizado correctamente");
+      project.name = newName; project.description = newDesc;
+      nameCell.textContent = newName;
+      descCell.textContent = newDesc || "-";
+      // Actualizar localStorage si este proyecto es el activo
+      const activeProject = JSON.parse(localStorage.getItem("activeProject") || "{}");
+      if (activeProject?.id === project.id) {
+        activeProject.name = newName; activeProject.description = newDesc;
+        localStorage.setItem("activeProject", JSON.stringify(activeProject));
+      }
+    } else {
+      alert(data?.msg || "No se pudieron guardar los cambios");
+      nameCell.textContent = oldName;
+      descCell.textContent = oldDesc || "-";
+    }
+
+    row.classList.remove("editing");
+    editBtn.textContent = "Editar";
+    cancelBtn.remove();
+    editBtn.onclick = (e) => enableEditMode(e, project, row);
+  };
+
+  cancelBtn.onclick = () => {
+    nameCell.textContent = oldName;
+    descCell.textContent = oldDesc || "-";
+    row.classList.remove("editing");
+    editBtn.textContent = "Editar";
+    cancelBtn.remove();
+    editBtn.onclick = (e) => enableEditMode(e, project, row);
+  };
+}
+
+/* ========= Eventos: Crear proyecto ========= */
+projectForm?.addEventListener("submit", async (e) => {
+  e.preventDefault(); e.stopPropagation();
+
+  const name = $("#projectName")?.value?.trim?.();
+  const description = $("#projectDesc")?.value?.trim?.();
+  const user = JSON.parse(localStorage.getItem("user") || "{}");
+
+  if (!name) { alert("El nombre del proyecto es obligatorio"); return; }
+  if (!user?.email) { alert("No hay sesión activa"); return; }
+
+  const data = await apiFetch("/create_project", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, description, user: user.email })
+  });
+
+  if (data?.success) {
+    addProjectToTable(data.project);
+    projectForm.reset();
+    alert(data.msg);
+  } else {
+    alert(data?.msg || "No se pudo crear el proyecto");
+  }
+});
+
+/* ========= Eventos: Subir dataset ========= */
+if (datasetForm) {
+  datasetForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const file = datasetFileInput?.files?.[0];
+    if (!file) { alert("Por favor selecciona un archivo CSV."); return; }
+
+    const activeProject = JSON.parse(localStorage.getItem("activeProject") || "{}");
+    const user = JSON.parse(localStorage.getItem("user") || "{}");
+    if (!activeProject?.id) { alert("Debes tener un proyecto activo antes de subir un dataset."); return; }
+    if (!user?.email) { alert("No hay sesión activa."); return; }
+
     const formData = new FormData();
     formData.append("project_id", activeProject.id);
     formData.append("user", user.email);
     formData.append("file", file);
 
-    try {
-        const resp = await fetch("http://127.0.0.1:5000/upload_dataset", {
-            method: "POST",
-            body: formData
-        });
+    const data = await apiFetch("/upload_dataset", { method: "POST", body: formData });
+    if (!data?.success) { alert(data?.msg || "Error al subir dataset"); return; }
 
-        const data = await resp.json();
+    alert(data.msg);
 
-        if (data.success) {
-            alert(data.msg);
+    // Persistir dataset en proyecto activo
+    activeProject.dataset_path = data.project?.dataset_path || activeProject.dataset_path;
+    activeProject.dataset_name = file.name;
+    localStorage.setItem("activeProject", JSON.stringify(activeProject));
 
-            // lee la información de la ruta del proyecto
-            activeProject.dataset_path = data.project.dataset_path;
-            // sobreescribe la información del proyecto en el navegador
-            localStorage.setItem("activeProject", JSON.stringify(activeProject));
+    setDatasetNameLabel(activeProject.dataset_name);
 
-            // Mostrar vista previa
-            renderDatasetPreview(data.columns, data.preview);
-
-            // nombre legible (deja solo el nombre del archivo)
-            activeProject.dataset_name = (data.project.dataset_path || "").split("/").pop();
-            // actualiza el nombre del label del dataset
-            setDatasetNameLabel(activeProject.dataset_name);
-            //guarda los datos en el almacenamiento local
-            localStorage.setItem("activeProject", JSON.stringify(activeProject));
-        } else {
-            alert(data.msg || "Error al subir dataset");
-        }
-    } catch (err) {
-        console.error("Error al subir dataset:", err);
-        alert("Error de conexión con el servidor.");
+    if (data.columns && data.preview) {
+      renderDatasetPreview(data.columns, data.preview);
+    } else {
+      await refreshCleanPreview();
     }
-});
+  });
+}
 
-// FUNCION PARA CAMBIAR EL NOMBRE DEL DATASET
-function setDatasetNameLabel(filename) {
-  const container = document.getElementById("datasetInfo");
-  if (!container) return;
-
-  // Usa el primer h3 existente dentro de #datasetInfo (el que ya dice "Vista previa del dataset")
-  let title = container.querySelector("h3");
-  if (!title) {
-    title = document.createElement("h3");
-    container.prepend(title);
+/* ========= Preprocesar datos ========= */
+function ensurePreprocessControls() {
+  if (!preprocessBtn) {
+    preprocessBtn = document.createElement("button");
+    preprocessBtn.id = "preprocessBtn";
+    preprocessBtn.textContent = "Preprocesar datos";
+    preprocessBtn.style.marginTop = "10px";
+    sectionUpload.appendChild(preprocessBtn);
   }
-  const safeName = filename || "(sin nombre)";
-  // sobreescribe el nombre actualizado
-  title.innerHTML = `Vista previa del dataset: <span id="datasetName">${safeName}</span>`;
-}
+  if (!preprocessResultDiv) {
+    preprocessResultDiv = document.createElement("div");
+    preprocessResultDiv.id = "preprocessResult";
+    sectionUpload.appendChild(preprocessResultDiv);
+  }
 
-
-
-// ------------------- FUNCIÓN PARA MOSTRAR VISTA PREVIA -------------------
-function renderDatasetPreview(columns, rows) {
-    // quita la información del preview (thead, tbody)
-    datasetPreviewHead.innerHTML = "";
-    datasetPreviewBody.innerHTML = "";
-
-    // si no hay columnas oculta todo el div
-    if (!columns || columns.length === 0) {
-        datasetInfo.classList.add("hidden");
-        return;
-    }
-
-    // Crear encabezados
-    const headRow = document.createElement("tr");
-    columns.forEach(col => { // por cada columna existente se ejecuta
-        // crea elementos table headers vacíos
-        const th = document.createElement("th");
-        // le asigna el nombre de cada columna a los th
-        th.textContent = col;
-        // se agregan a la fila de encabezado
-        headRow.appendChild(th);
-    });
-
-    // integra la fila de cabecera al thead del preview
-    datasetPreviewHead.appendChild(headRow);
-
-    // Crear filas de datos
-    // lo mismo de arriba pero con las celdas de data para el preview
-    rows.forEach(row => {
-        const tr = document.createElement("tr");
-        columns.forEach(col => {
-            const td = document.createElement("td");
-            td.textContent = row[col];
-            tr.appendChild(td);
-        });
-        datasetPreviewBody.appendChild(tr);
-    });
-
-    // muestra la info si estaba oculta
-    datasetInfo.classList.remove("hidden");
-
+  preprocessBtn.onclick = async () => {
     const activeProject = JSON.parse(localStorage.getItem("activeProject") || "{}");
-    const fileName = activeProject?.dataset_name || (activeProject?.dataset_path || "").split("/").pop();
-    // actualiza el label del nombre del dataset
-    setDatasetNameLabel(fileName);
-}
-
-// ------------------- PREPROCESAR DATASET -------------------
-const preprocessBtn = document.createElement("button");
-preprocessBtn.textContent = "Preprocesar datos";
-preprocessBtn.id = "preprocessBtn";
-preprocessBtn.style.marginTop = "10px";
-document.querySelector("#upload-dataset").appendChild(preprocessBtn);
-
-const preprocessResultDiv = document.createElement("div");
-preprocessResultDiv.id = "preprocessResult";
-preprocessResultDiv.classList.add("hidden");
-document.querySelector("#upload-dataset").appendChild(preprocessResultDiv);
-
-preprocessBtn.addEventListener("click", async () => {
-    const activeProject = JSON.parse(localStorage.getItem("activeProject"));
-    const user = JSON.parse(localStorage.getItem("user"));
-
-    if (!activeProject || !activeProject.dataset_path) {
-        alert("Primero debes subir un dataset antes de preprocesar los datos.");
-        return;
-    }
+    const user = JSON.parse(localStorage.getItem("user") || "{}");
+    if (!activeProject?.id || !activeProject?.dataset_path) { alert("Primero debes subir un dataset."); return; }
+    if (!user?.email) { alert("No hay sesión activa."); return; }
 
     if (!confirm("¿Deseas limpiar y preparar el dataset para entrenamiento?")) return;
 
-    try {
-        const resp = await fetch("http://127.0.0.1:5000/preprocess_data", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                project_id: activeProject.id,
-                user: user.email
-            })
-        });
+    const data = await apiFetch("/preprocess_data", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ project_id: activeProject.id, user: user.email })
+    });
 
-        const data = await resp.json();
+    if (!data?.success) { alert(data?.msg || "Error en el preprocesamiento."); return; }
 
-        if (data.success) {
-            alert(data.msg);
-            renderPreprocessSummary(data.summary, data.numeric_cols, data.categorical_cols);
-            // Actualizar dataset activo
-            if (data.clean_path) {
-                activeProject.dataset_path = data.clean_path;
-                // 🆕 refresca nombre por si cambió la ruta
-                activeProject.dataset_name = (data.clean_path || "").split("/").pop();
-                setDatasetNameLabel(activeProject.dataset_name);
-                localStorage.setItem("activeProject", JSON.stringify(activeProject));
-            }
+    alert(data.msg);
 
-            // Si el backend devuelve filas previsualizables (opcional)
-            if (data.preview && data.columns) {
-                renderDatasetPreview(data.columns, data.preview);
-            } else {
-                // Refrescar vista con el dataset limpio
-                const resp2 = await fetch(`/static/${activeProject.dataset_path}`);
-            }
-            await refreshCleanPreview();
-        } else {
-            alert(data.msg || "Error en el preprocesamiento.");
-        }
-    } catch (err) {
-        console.error("Error al preprocesar datos:", err);
-        alert("Error de conexión con el servidor.");
+    // Actualizar dataset_path si el backend lo devolvió
+    if (data.clean_path) {
+      activeProject.dataset_path = data.clean_path;
+      localStorage.setItem("activeProject", JSON.stringify(activeProject));
     }
+
+    renderPreprocessSummary(data.summary, data.numeric_cols, data.categorical_cols);
+
+    if (data.columns && data.preview) {
+      renderDatasetPreview(data.columns, data.preview);
+    } else {
+      await refreshCleanPreview();
+    }
+  };
+}
+
+/* ========= Recomendación de modelo ========= */
+function ensureRecommendButton() {
+  if (!recommendBtn) {
+    recommendBtn = document.createElement("button");
+    recommendBtn.id = "btnRecommend";
+    recommendBtn.textContent = "Sugerir modelo";
+    recommendBtn.style.marginTop = "10px";
+    sectionSelect.appendChild(recommendBtn);
+  }
+  recommendBtn.onclick = recommendModel;
+}
+
+async function recommendModel() {
+  const activeProject = JSON.parse(localStorage.getItem("activeProject") || "{}");
+  const user = JSON.parse(localStorage.getItem("user") || "{}");
+
+  if (!activeProject?.id) { alert("Selecciona un proyecto primero."); return; }
+
+  // Intento simple: usa columnas de la vista previa si están en DOM
+  const cols = Array.from(datasetPreviewHead?.querySelectorAll("th") || []).map((th) => th.textContent);
+  let defaultTarget = cols.includes("Y") ? "Y" : (cols.length ? cols[cols.length - 1] : "");
+  let target = prompt("Columna objetivo (por ejemplo, Y). Déjalo vacío si no hay:", defaultTarget);
+  if (target !== null) target = target.trim();
+  if (target === "") target = null;
+
+  const data = await apiFetch("/recommend_model", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ project_id: activeProject.id, user: user.email, target })
+  });
+
+  if (!data?.success) { alert(data?.msg || "No se pudo generar una recomendación."); return; }
+
+  const recsHtml = (data.recommendations || [])
+    .map((r) => `<li><b>${r.model}</b> — score: ${r.score}<br><small>${r.why}</small></li>`)
+    .join("");
+
+  modelRecDiv.innerHTML = `
+    <div class="panel">
+      <div class="panel-title">Recomendación de modelo</div>
+      <p><b>Tarea:</b> ${data.task || "unsupervised"}${data.target ? ` — <b>Objetivo:</b> ${data.target}` : ""}</p>
+      <p><b>Features numéricas:</b> ${data.numeric_features?.join(", ") || "Ninguna"}</p>
+      <p><b>Features categóricas:</b> ${data.categorical_features?.join(", ") || "Ninguna"}</p>
+      <ul>${recsHtml}</ul>
+    </div>
+  `;
+}
+
+/* ========= Seleccionar modelo ========= */
+/* ========= Seleccionar modelo ========= */
+modelForm?.addEventListener("submit", async (e) => {
+  e.preventDefault(); 
+  e.stopPropagation();
+
+  const activeProject = JSON.parse(localStorage.getItem("activeProject") || "{}");
+  const user = JSON.parse(localStorage.getItem("user") || "{}");
+  const value = modelSelect?.value;
+
+  if (!activeProject?.id) { alert("Selecciona un proyecto primero."); return; }
+  if (!value) { alert("Selecciona un algoritmo."); return; }
+
+  // Mapeo de la opción del <select> a la clave de backend
+  const map = {
+    "linear":       "linear_regression",
+    "logistic":     "logistic_regression",
+    "perceptron":   "perceptron",
+    "decisiontree": "decision_tree",
+    "naivebayes":   "naive_bayes",
+    "mlp":          "mlp",
+    "pca":          "pca",
+    "kmeans":       "kmeans"
+  };
+
+  const algorithm_key = map[value];
+  if (!algorithm_key) { alert("Modelo no soportado."); return; }
+
+  // Derivar category que el backend exige
+  const category = (value === "pca" || value === "kmeans") ? "unsupervised" : "supervised";
+
+  const data = await apiFetch("/select_model", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      project_id: activeProject.id,
+      user: user.email,
+      category,            // <<=== NUEVO
+      algorithm_key
+    })
+  });
+
+  if (data?.success) {
+    alert("Modelo seleccionado y guardado en el proyecto.");
+  } else {
+    alert(data?.msg || "No se pudo seleccionar el modelo.");
+  }
 });
 
-// ------------------- UI: Sugerir modelo -------------------
-const selectModelSection = document.getElementById("select-model");
 
-// Botón "Sugerir modelo"
-const recommendBtn = document.createElement("button");
-recommendBtn.id = "btnRecommend";
-recommendBtn.textContent = "Sugerir modelo";
-recommendBtn.style.marginTop = "10px";
-selectModelSection.appendChild(recommendBtn);
-
-// Contenedor para mostrar la recomendación
-const modelRecDiv = document.createElement("div");
-modelRecDiv.id = "model-recommendations";
-modelRecDiv.style.marginTop = "10px";
-selectModelSection.appendChild(modelRecDiv);
-
-// Click → recomendar
-recommendBtn.addEventListener("click", recommendModel);
-
-// ------------------- LÓGICA: recomendar modelo -------------------
-async function recommendModel() {
-    const activeProject = JSON.parse(localStorage.getItem("activeProject"));
-    const user = JSON.parse(localStorage.getItem("user"));
-
-    if (!activeProject) {
-        alert("Selecciona un proyecto primero.");
-        return;
-    }
-
-    // Intentar inferir un target por defecto a partir de la vista previa
-    const cols = Array.from(datasetPreviewHead.querySelectorAll("th")).map(th => th.textContent);
-    let defaultTarget = cols.includes("Y") ? "Y" : (cols.length ? cols[cols.length - 1] : "");
-
-    // Pedir la columna objetivo (deja vacío si no hay objetivo → no supervisado)
-    let target = prompt("Columna objetivo (por ejemplo, Y). Déjalo vacío si no hay:", defaultTarget);
-    if (target !== null) target = target.trim();
-    if (target === "") target = null;
-
-    try {
-        const resp = await fetch("/recommend_model", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                project_id: activeProject.id,
-                user: user.email,
-                target
-            })
-        });
-        const data = await resp.json();
-
-        if (!data.success) {
-            alert(data.msg || "No se pudo generar una recomendación.");
-            return;
-        }
-
-        const recsHtml = (data.recommendations || [])
-            .map(r => `<li><b>${r.model}</b> — score: ${r.score}<br><small>${r.why}</small></li>`)
-            .join("");
-
-        modelRecDiv.innerHTML = `
-            <h3>Recomendación de modelo</h3>
-            <p><b>Tarea:</b> ${data.task || "unsupervised"}${data.target ? ` — <b>Objetivo:</b> ${data.target}` : ""}</p>
-            <p><b>Features numéricas:</b> ${data.numeric_features?.join(", ") || "Ninguna"}</p>
-            <p><b>Features categóricas:</b> ${data.categorical_features?.join(", ") || "Ninguna"}</p>
-            <ul>${recsHtml}</ul>
-        `;
-    } catch (err) {
-        console.error("Error al recomendar modelo:", err);
-        alert("Error al conectar con el servidor.");
-    }
-}
-
-
-// ------------------- MOSTRAR RESULTADO DEL PREPROCESAMIENTO -------------------
-function renderPreprocessSummary(summary, numericCols, categoricalCols) {
-    preprocessResultDiv.innerHTML = `
-        <h3>Resumen del preprocesamiento</h3>
-        <ul>
-            <li><b>Filas antes:</b> ${summary.filas_antes}</li>
-            <li><b>Filas después:</b> ${summary.filas_despues}</li>
-            <li><b>Columnas antes:</b> ${summary.columnas_antes}</li>
-            <li><b>Columnas después:</b> ${summary.columnas_despues}</li>
-            <li><b>Duplicados eliminados:</b> ${summary.duplicados_eliminados}</li>
-            <li><b>Columnas eliminadas:</b> ${summary.columnas_eliminadas.join(", ") || "Ninguna"}</li>
-        </ul>
-        <p><b>Columnas numéricas:</b> ${numericCols.join(", ") || "Ninguna"}</p>
-        <p><b>Columnas categóricas:</b> ${categoricalCols.join(", ") || "Ninguna"}</p>
-    `;
-    preprocessResultDiv.classList.remove("hidden");
-}
-
-// Refrescar vista previa del dataset limpio
-async function refreshCleanPreview() {
-    const activeProject = JSON.parse(localStorage.getItem("activeProject"));
-    const user = JSON.parse(localStorage.getItem("user"));
-
-    try {
-        const resp = await fetch(`/get_clean_dataset?project_id=${activeProject.id}&user=${encodeURIComponent(user.email)}`);
-        const data = await resp.json();
-
-        if (data.success) {
-            renderDatasetPreview(data.columns, data.preview);
-        } else {
-            console.warn("No se pudo refrescar la vista del dataset limpio:", data.msg);
-        }
-    } catch (err) {
-        console.error("Error al refrescar dataset limpio:", err);
-    }
-}
-
-// ======== Seleccionar modelo: usar TU form y TU select existentes ========
-
-// Mapea los valores de tu <option value="..."> a la clave interna y categoría
-const MODEL_MAP = {
-  linear:       { key: "linear_regression",   category: "regresion" },
-  logistic:     { key: "logistic_regression", category: "clasificacion" },
-  perceptron:   { key: "perceptron",          category: "clasificacion" },
-  decisiontree: { key: "decision_tree",       category: "clasificacion" },
-  naivebayes:   { key: "naive_bayes",         category: "clasificacion" },
-  mlp:          { key: "mlp",                 category: "clasificacion" },
-  pca:          { key: "pca",                 category: "reduccion_dimensionalidad" },
-  kmeans:       { key: "kmeans",              category: "clustering" },
-};
-
-// Toma tus elementos reales existentes
-const modelForm = document.getElementById("modelForm");
-const modelSelect = document.getElementById("modelSelect");
-const modelStatus = document.getElementById("model-recommendations"); // lo usamos como “status”
-
-async function saveModelSelection() {
+/* ========= Entrenar modelo ========= */
+trainButton?.addEventListener("click", async () => {
   const activeProject = JSON.parse(localStorage.getItem("activeProject") || "{}");
   const user = JSON.parse(localStorage.getItem("user") || "{}");
-  if (!activeProject?.id) return alert("Selecciona un proyecto primero.");
-  if (!user?.email) return alert("No hay sesión activa.");
 
-  const uiVal = modelSelect?.value;
-  if (!uiVal) return alert("Elige un modelo.");
+  if (!activeProject?.id) { alert("Selecciona un proyecto primero."); return; }
 
-  const map = MODEL_MAP[uiVal];
-  if (!map) return alert("Modelo no reconocido.");
+  // Pedimos target
+  const cols = Array.from(datasetPreviewHead?.querySelectorAll("th") || []).map((th) => th.textContent);
+  let defaultTarget = cols.includes("Y") ? "Y" : (cols.length ? cols[cols.length - 1] : "");
+  let target = prompt("Columna objetivo (target) para entrenar:", defaultTarget);
+  if (!target) { alert("Debes indicar la columna objetivo (target)."); return; }
 
-  // Si en tu HTML agregas inputs de hiperparámetros, puedes leerlos aquí.
-  const params = {}; // por ahora dejamos defaults del backend
+  setText(trainingStatus, "Entrenando modelo...");
 
-  try {
-    const resp = await fetch("/select_model", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        project_id: activeProject.id,
-        user: user.email,
-        category: map.category,
-        algorithm_key: map.key,
-        params
-      })
-    });
-    const data = await resp.json();
-
-    if (data.success) {
-      if (modelStatus) {
-        modelStatus.innerHTML = `<span style="color:green">✔ Modelo guardado: <b>${uiVal}</b> → <code>${map.key}</code></span>`;
-      }
-      // habilitar entrenar 
-      const trainBtn = document.getElementById("trainButton") || document.querySelector("#train-model button");
-      if (trainBtn) trainBtn.disabled = false;
-
-      if (data.project) {
-        localStorage.setItem("activeProject", JSON.stringify(data.project));
-      }
-    } else {
-      if (modelStatus) {
-        modelStatus.innerHTML = `<span style="color:#b00">✖ ${data.msg || "No se pudo guardar la selección"}</span>`;
-      } else {
-        alert(data.msg || "No se pudo guardar la selección");
-      }
-    }
-  } catch (err) {
-    console.error("Error guardando modelo:", err);
-    if (modelStatus) modelStatus.innerHTML = `<span style="color:#b00">✖ Error de conexión</span>`;
-    else alert("Error de conexión");
-  }
-}
-
-// Evita recarga del form y usa nuestra función
-if (modelForm) {
-  modelForm.addEventListener("submit", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    saveModelSelection();
+  const data = await apiFetch("/train_model", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ project_id: activeProject.id, user: user.email, target })
   });
 
-  // Por si el botón del form dispara submit por defecto, reforzamos:
-  const submitBtn = modelForm.querySelector('button[type="submit"]');
-  if (submitBtn) submitBtn.setAttribute("type", "button");
-  if (submitBtn) {
-    submitBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      saveModelSelection();
-    }, { capture: true });
-  }
-}
-
-
-// ======== Entrenar modelo ========
-const trainBtn = document.getElementById("trainButton");
-const trainingStatus = document.getElementById("trainingStatus");
-const metricsBox = document.getElementById("metrics");
-
-function getVisibleColumnsFromPreview() {
-  return Array.from(document.querySelectorAll("#datasetPreviewHead th")).map(th => th.textContent.trim());
-}
-
-function getSelectedModelKeyFromProject() {
-  const activeProject = JSON.parse(localStorage.getItem("activeProject") || "{}");
-  return activeProject?.model_cfg?.algorithm_key || null;
-}
-
-function isSupervised(algKey) {
-  return ["linear_regression","logistic_regression","perceptron","decision_tree","naive_bayes","mlp"].includes(algKey);
-}
-
-async function trainCurrentModel() {
-  const activeProject = JSON.parse(localStorage.getItem("activeProject") || "{}");
-  const user = JSON.parse(localStorage.getItem("user") || "{}");
-  if (!activeProject?.id) return alert("Selecciona un proyecto primero.");
-  if (!user?.email) return alert("No hay sesión activa.");
-
-  const algKey = getSelectedModelKeyFromProject();
-  if (!algKey) return alert("Selecciona y guarda un modelo primero en la sección 'Modelos'.");
-
-  let target = null;
-  if (isSupervised(algKey)) {
-    const cols = getVisibleColumnsFromPreview();
-    const defaultTarget = cols.includes("Y") ? "Y" : (cols[cols.length - 1] || "");
-    target = prompt("Columna objetivo (target):", defaultTarget);
-    if (target === null) return; // cancelado
-    target = target.trim();
-    if (!target) return alert("Debes indicar una columna objetivo.");
+  if (!data?.success) {
+    setText(trainingStatus, "");
+    alert(data?.msg || "Error durante el entrenamiento.");
+    return;
   }
 
-  trainingStatus.innerHTML = "Entrenando...";
+  // Mostrar métricas en Resultados
+  setText(trainingStatus, "Entrenamiento completado.");
+  renderMetrics(data.metrics);
 
-  try {
-    const resp = await fetch("/train_model", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        project_id: activeProject.id,
-        user: user.email,
-        target: target || null,       // null para no supervisados
-        test_size: 0.2,
-        random_state: 42
-      })
-    });
-    const data = await resp.json();
-
-    if (!data.success) {
-      trainingStatus.innerHTML = `<span style="color:#b00">✖ ${data.msg || "Error en entrenamiento"}</span>`;
-      return;
-    }
-
-    trainingStatus.innerHTML = `<span style="color:green">✔ ${data.msg}</span>`;
-
-    // Pintar métricas en #metrics
-    if (metricsBox) {
-      metricsBox.innerHTML = renderMetricsHTML(data.metrics);
-    }
-
-    // (opcional) mostrar preview de predicciones/resultados en #results si quieres
-    // Por ahora lo dejamos minimal.
-  } catch (err) {
-    console.error("Error entrenando:", err);
-    trainingStatus.innerHTML = `<span style="color:#b00">✖ Error de conexión</span>`;
+  // Habilitar sección Predecir
+  if (data.metrics && Array.isArray(data.metrics.features_used)) {
+    enablePredictUI(data.metrics.features_used, data.metrics.task);
+    $("#predict")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
-}
+});
 
-function renderMetricsHTML(m) {
-  if (!m || !m.task) return "<p>Sin métricas.</p>";
+/** Dibuja métricas (regresión / clasificación / clustering / reducción) */
+function renderMetrics(m) {
+  if (!m) { metricsBox.innerHTML = ""; return; }
+  let html = `<div class="panel"><div class="panel-title">Métricas (${m.task ? capitalize(m.task) : "Modelo"})</div><ul>`;
+  const safe = (v) => (typeof v === "number" ? Number(v.toFixed ? v.toFixed(6) : v) : v);
+
   if (m.task === "regression") {
-    return `
-      <h3>Métricas (Regresión)</h3>
-      <ul>
-        <li>MSE: ${m.mse?.toFixed?.(6) ?? m.mse}</li>
-        <li>MAE: ${m.mae?.toFixed?.(6) ?? m.mae}</li>
-        <li>R²: ${m.r2?.toFixed?.(6) ?? m.r2}</li>
-      </ul>`;
+    html += `<li><b>MSE:</b> ${safe(m.mse)}</li>`;
+    html += `<li><b>MAE:</b> ${safe(m.mae)}</li>`;
+    html += `<li><b>R²:</b> ${safe(m.r2)}</li>`;
+    if (m.intercept !== undefined) html += `<li><b>Intercept:</b> ${safe(m.intercept)}</li>`;
+    if (m.coefficients) {
+      html += `<li><b>Coeficientes:</b><ul>`;
+      Object.entries(m.coefficients).forEach(([k, v]) => {
+        html += `<li>${k}: ${safe(v)}</li>`;
+      });
+      html += `</ul></li>`;
+    }
+  } else if (m.task === "classification") {
+    html += `<li><b>Accuracy:</b> ${safe(m.accuracy)}</li>`;
+    if (m.confusion_matrix) {
+      const labels = Object.keys(m.confusion_matrix).map(Number).sort((a,b)=>a-b);
+      html += `<li><b>Matriz de confusión:</b><table class="mini"><thead><tr><th></th>${labels.map(l=>`<th>${l}</th>`).join("")}</tr></thead><tbody>`;
+      labels.forEach((i)=> {
+        html += `<tr><th>${i}</th>`;
+        labels.forEach((j)=> {
+          html += `<td>${m.confusion_matrix[i]?.[j] ?? 0}</td>`;
+        });
+        html += `</tr>`;
+      });
+      html += `</tbody></table></li>`;
+    }
+  } else if (m.task === "clustering") {
+    html += `<li><b>Muestras:</b> ${safe(m.n_samples)}</li>`;
+    if (m.inertia !== undefined) html += `<li><b>Inercia:</b> ${safe(m.inertia)}</li>`;
+  } else if (m.task === "dimensionality_reduction") {
+    if (Array.isArray(m.explained_variance_ratio)) {
+      html += `<li><b>Varianza explicada:</b> ${m.explained_variance_ratio.map((v)=>safe(v)).join(", ")}</li>`;
+    }
   }
-  if (m.task === "classification") {
-    const labels = Object.keys(m.confusion_matrix || {}).map(Number).sort((a,b)=>a-b);
-    const cmRows = labels.map(i => {
-      const row = labels.map(j => m.confusion_matrix[i]?.[j] ?? 0).join(" | ");
-      return `${i} │ ${row}`;
-    }).join("<br>");
-    const lm = m.label_map ? `<p><small>label_map: ${JSON.stringify(m.label_map)}</small></p>` : "";
-    return `
-      <h3>Métricas (Clasificación)</h3>
-      <ul><li>Accuracy: ${(m.accuracy*100).toFixed(2)}%</li></ul>
-      <h4>Matriz de confusión</h4>
-      <code>${cmRows}</code>
-      ${lm}`;
-  }
-  if (m.task === "clustering") {
-    return `
-      <h3>Info (Clustering)</h3>
-      <ul>
-        <li>n_samples: ${m.n_samples}</li>
-        ${m.inertia !== undefined ? `<li>inercia: ${m.inertia}</li>` : ""}
-      </ul>`;
-  }
-  if (m.task === "dimensionality_reduction") {
-    const ev = (m.explained_variance_ratio || []).map((v,i)=>`PC${i+1}: ${(v*100).toFixed(2)}%`).join(", ");
-    return `
-      <h3>Info (PCA)</h3>
-      <p>Varianza explicada: ${ev || "N/D"}</p>`;
-  }
-  return "<p>Métricas no reconocidas.</p>";
+  if (m.n_train !== undefined) html += `<li><b>n_train:</b> ${safe(m.n_train)}</li>`;
+  if (m.n_test !== undefined)  html += `<li><b>n_test:</b> ${safe(m.n_test)}</li>`;
+  if (Array.isArray(m.features_used)) html += `<li><b>Features usadas:</b> ${m.features_used.join(", ")}</li>`;
+  if (m.target) html += `<li><b>Target:</b> ${m.target}</li>`;
+
+  html += `</ul></div>`;
+  metricsBox.innerHTML = html;
 }
 
-if (trainBtn) {
-  trainBtn.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    trainCurrentModel();
-  });
-}
+function capitalize(s) { return (s && s[0].toUpperCase() + s.slice(1)) || s; }
 
+/* ========= Inicio ========= */
+window.addEventListener("DOMContentLoaded", () => {
+  const user = JSON.parse(localStorage.getItem("user") || "null");
+  if (!user) {
+    alert("Debes iniciar sesión primero.");
+    window.location.href = "index.html";
+    return;
+  }
 
+  setText(headerTitle, `Aivana - Bienvenido, ${user.name}`);
+  loadProjects(user.email);
 
+  // Asegurar controles que podrían no estar en HTML
+  ensurePreprocessControls();
+  ensureRecommendButton();
+});
 
-
-
-// ------------------- CERRAR SESIÓN -------------------
-// elemento <a> de cerrar sesión en el <nav>
-const logoutLink = document.querySelector("a[href='index.html']");
-if (logoutLink) {
-    // al cerrar sesión, redirige a index.html (esto lo hace el HTML) y borra el usuario el localStorage
-    logoutLink.addEventListener("click", (e) => {
-        localStorage.removeItem("user");
-    });
-}
+// Cerrar sesión
+logoutLink?.addEventListener("click", () => {
+  localStorage.removeItem("user");
+});
