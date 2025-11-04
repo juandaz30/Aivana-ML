@@ -755,36 +755,51 @@ def train_model():
 
                 try:
                     if alg_key == "linear_regression":
+                        # pesos aprendidos en el espacio normalizado
                         w = np.asarray(getattr(model, "weights", None), dtype=float).ravel()
                         fit_intercept = bool(getattr(model, "fit_intercept", True))
                         normalized = bool(getattr(model, "normalize", False))
 
-                        if normalized and all(hasattr(model, a) for a in ("x_mean_", "x_std_", "y_mean_", "y_std_")):
-                            # pesos en espacio estandarizado → convertir a espacio original
-                            coef_std = w[1:] if fit_intercept else w
+                        if normalized and hasattr(model, "x_mean_") and hasattr(model, "x_std_") and hasattr(model, "y_mean_"):
+                            # quitamos el término de bias del vector de pesos
+                            if fit_intercept:
+                                w0 = float(w[0])          # bias en espacio normalizado
+                                w_rest = w[1:]            # coeficientes asociados a cada Xn
+                            else:
+                                w0 = 0.0
+                                w_rest = w
+
                             x_mean = np.asarray(model.x_mean_, dtype=float)
                             x_std  = np.asarray(model.x_std_,  dtype=float)
+                            x_std  = np.where(x_std == 0, 1.0, x_std)   # evitar división por 0
                             y_mean = float(model.y_mean_)
-                            y_std  = float(model.y_std_)
-                            # protecciones por si hay std=0
-                            x_std = np.where(x_std == 0, 1.0, x_std)
-                            y_std = y_std if y_std != 0 else 1.0
 
-                            coef_orig = (coef_std * (y_std / x_std))
-                            intercept_orig = y_mean - float(np.dot(coef_orig, x_mean))
+                            # 1) pasar coeficientes al espacio original
+                            coef_orig = w_rest / x_std
+
+                            # 2) intercept en espacio original:
+                            #    y = y_mean + w0 - Σ( coef_orig * x_mean ) + Σ( coef_orig * Xi )
+                            intercept_orig = y_mean + w0 - float(np.dot(coef_orig, x_mean))
 
                             metrics["intercept"] = float(intercept_orig)
-                            metrics["coefficients"] = {c: float(v) for c, v in zip(feature_candidates, coef_orig.tolist())}
+                            metrics["coefficients"] = {
+                                c: float(v) for c, v in zip(feature_candidates, coef_orig.tolist())
+                            }
                             metrics["normalized_inputs"] = True
                         else:
-                            # sin normalización: leer pesos directos
+                            # modelo sin normalización → usamos lo que haya
                             if fit_intercept:
                                 metrics["intercept"] = float(w[0])
-                                metrics["coefficients"] = {c: float(v) for c, v in zip(feature_candidates, w[1:].tolist())}
+                                metrics["coefficients"] = {
+                                    c: float(v) for c, v in zip(feature_candidates, w[1:].tolist())
+                                }
                             else:
                                 metrics["intercept"] = 0.0
-                                metrics["coefficients"] = {c: float(v) for c, v in zip(feature_candidates, w.tolist())}
-                            metrics["normalized_inputs"] = normalized
+                                metrics["coefficients"] = {
+                                    c: float(v) for c, v in zip(feature_candidates, w.tolist())
+                                }
+                            metrics["normalized_inputs"] = False
+
                 except Exception:
                     # si algo falla, no se rompe el flujo
                     pass

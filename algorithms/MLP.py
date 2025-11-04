@@ -63,7 +63,7 @@ class MLPClassifier:
                  hidden_layers=(32,),
                  activation='relu',
                  learning_rate=0.01,
-                 n_iterations=200,
+                 n_iterations=2000,
                  batch_size=None,
                  l2=0.0,
                  early_stopping=False,

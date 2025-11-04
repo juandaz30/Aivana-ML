@@ -225,7 +225,7 @@ function enablePredictUI(features, task) {
       body: JSON.stringify({ project_id: activeProject.id, user: user.email, inputs })
     });
 
-    if (!data?.success) { alert(data?.msg || "No se pudo predecir."); return; }
+    if (!data?.success) { alert(data.message || "No se pudo predecir."); return; }
 
     let html = `<div class="panel-title">Resultado de la predicción</div>`;
     if (data.task === "regression") {
