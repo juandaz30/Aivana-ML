@@ -5,6 +5,7 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 import sys
+import joblib
 
 # Inicializacion del servidor con ruta de archivos estaticos
 app = Flask(__name__, static_folder="../frontend", static_url_path="/")
@@ -710,7 +711,7 @@ def train_model():
     df, err = read_csv_or_error(dataset_path, "dataset")
     if err:
         return jsonify({"success": False, "msg": err}), 400
-    # Instanciar modelo segun algoritmo seleccionado
+    # Instanciar modelo según algoritmo seleccionado
     cls = MODEL_CLASSES.get(alg_key)
     if not cls:
         return jsonify({"success": False, "msg": f"Algoritmo no soportado: {alg_key}"}), 400
@@ -738,11 +739,9 @@ def train_model():
                 y_encoded = y.astype(str).map(label_map)
             Xtr, Xte, ytr, yte = _train_test_split(X, y_encoded, test_size=test_size, seed=random_state)
             model.fit(Xtr.values, ytr.values if ytr is not None else None)
-            yhat = None
-            if hasattr(model, "predict"):
-                yhat = model.predict(Xte.values)
-            else:
+            if not hasattr(model, "predict"):
                 return jsonify({"success": False, "msg": "El modelo no expone método predict"}), 400
+            yhat = model.predict(Xte.values)
             yhat = np.array(yhat).reshape(-1)
             if kind == "regression":
                 y_true = yte.values.astype(float)
@@ -752,57 +751,42 @@ def train_model():
                 ss_tot = float(np.sum((y_true - np.mean(y_true)) ** 2)) or 1.0
                 r2 = 1.0 - ss_res / ss_tot
                 metrics = {"task": "regression", "mse": mse, "mae": mae, "r2": r2}
-
                 try:
                     if alg_key == "linear_regression":
                         # pesos aprendidos en el espacio normalizado
                         w = np.asarray(getattr(model, "weights", None), dtype=float).ravel()
                         fit_intercept = bool(getattr(model, "fit_intercept", True))
                         normalized = bool(getattr(model, "normalize", False))
-
                         if normalized and hasattr(model, "x_mean_") and hasattr(model, "x_std_") and hasattr(model, "y_mean_"):
-                            # quitamos el término de bias del vector de pesos
+                            # quitar término de bias del vector de pesos
                             if fit_intercept:
                                 w0 = float(w[0])          # bias en espacio normalizado
                                 w_rest = w[1:]            # coeficientes asociados a cada Xn
                             else:
                                 w0 = 0.0
                                 w_rest = w
-
                             x_mean = np.asarray(model.x_mean_, dtype=float)
                             x_std  = np.asarray(model.x_std_,  dtype=float)
                             x_std  = np.where(x_std == 0, 1.0, x_std)   # evitar división por 0
                             y_mean = float(model.y_mean_)
-
                             # 1) pasar coeficientes al espacio original
                             coef_orig = w_rest / x_std
-
                             # 2) intercept en espacio original:
-                            #    y = y_mean + w0 - Σ( coef_orig * x_mean ) + Σ( coef_orig * Xi )
                             intercept_orig = y_mean + w0 - float(np.dot(coef_orig, x_mean))
-
                             metrics["intercept"] = float(intercept_orig)
-                            metrics["coefficients"] = {
-                                c: float(v) for c, v in zip(feature_candidates, coef_orig.tolist())
-                            }
+                            metrics["coefficients"] = {c: float(v) for c, v in zip(feature_candidates, coef_orig.tolist())}
                             metrics["normalized_inputs"] = True
                         else:
-                            # modelo sin normalización → usamos lo que haya
+                            # modelo sin normalización → usar coeficientes tal cual
                             if fit_intercept:
                                 metrics["intercept"] = float(w[0])
-                                metrics["coefficients"] = {
-                                    c: float(v) for c, v in zip(feature_candidates, w[1:].tolist())
-                                }
+                                metrics["coefficients"] = {c: float(v) for c, v in zip(feature_candidates, w[1:].tolist())}
                             else:
                                 metrics["intercept"] = 0.0
-                                metrics["coefficients"] = {
-                                    c: float(v) for c, v in zip(feature_candidates, w.tolist())
-                                }
+                                metrics["coefficients"] = {c: float(v) for c, v in zip(feature_candidates, w.tolist())}
                             metrics["normalized_inputs"] = False
-
                 except Exception:
-                    # si algo falla, no se rompe el flujo
-                    pass
+                    pass  # si algo falla, continuar sin interrumpir
             else:
                 y_true = yte.values.astype(int)
                 y_pred = yhat.astype(int)
@@ -816,21 +800,23 @@ def train_model():
             preview = {
                 "columns": ["y_true", "y_pred"] + feature_candidates[:10],
                 "rows": [
-                    [ (None if yte is None else (int(yte.iloc[i]) if kind == "classification" else float(yte.iloc[i]))),
-                      (int(yhat[i]) if kind == "classification" else float(yhat[i])) ]
-                    + [ (None if pd.isna(Xte.iloc[i, j]) else float(Xte.iloc[i, j])) for j in range(min(10, Xte.shape[1])) ]
+                    [
+                        (None if yte is None else (int(yte.iloc[i]) if kind == "classification" else float(yte.iloc[i]))),
+                        (int(yhat[i]) if kind == "classification" else float(yhat[i]))
+                    ] + [
+                        (None if pd.isna(Xte.iloc[i, j]) else float(Xte.iloc[i, j]))
+                        for j in range(min(10, Xte.shape[1]))
+                    ]
                     for i in range(prev_k)
                 ]
             }
         elif kind == "clustering":
-            if not df.select_dtypes(include=["number"]).columns.tolist():
+            num_cols = df.select_dtypes(include=["number"]).columns.tolist()
+            if not num_cols:
                 return jsonify({"success": False, "msg": "No hay columnas numéricas para K-Means"}), 400
-            X = df[df.select_dtypes(include=["number"]).columns.tolist()]
+            X = df[num_cols]
             model.fit(X.values)
-            if hasattr(model, "predict"):
-                labels = model.predict(X.values)
-            else:
-                labels = getattr(model, "labels_", None)
+            labels = model.predict(X.values) if hasattr(model, "predict") else getattr(model, "labels_", None)
             labels = np.array(labels) if labels is not None else np.zeros(len(X), dtype=int)
             inertia = getattr(model, "inertia_", None)
             metrics = {"task": "clustering", "n_samples": int(len(X))}
@@ -838,9 +824,12 @@ def train_model():
                 metrics["inertia"] = float(inertia)
             prev_k = min(10, len(X))
             preview = {
-                "columns": ["cluster"] + df.select_dtypes(include=["number"]).columns.tolist()[:10],
+                "columns": ["cluster"] + num_cols[:10],
                 "rows": [
-                    [int(labels[i])] + [ (None if pd.isna(X.iloc[i, j]) else float(X.iloc[i, j])) for j in range(min(10, X.shape[1])) ]
+                    [int(labels[i])] + [
+                        (None if pd.isna(X.iloc[i, j]) else float(X.iloc[i, j]))
+                        for j in range(min(10, X.shape[1]))
+                    ]
                     for i in range(prev_k)
                 ]
             }
@@ -859,11 +848,11 @@ def train_model():
                 explained = [float(v) for v in np.array(explained).ravel().tolist()]
             metrics = {"task": "dimensionality_reduction", "explained_variance_ratio": explained}
             prev_k = min(10, Z.shape[0])
-            prev_m = min(5, Z.shape[1])
+            prev_m = min(5, Z.shape[1]) if len(Z.shape) == 2 else 1
             preview = {
                 "columns": [f"PC{i+1}" for i in range(prev_m)],
                 "rows": [
-                    [ float(Z[i, j]) for j in range(prev_m) ]
+                    [float(Z[i, j]) for j in range(prev_m)]
                     for i in range(prev_k)
                 ]
             }
@@ -871,38 +860,45 @@ def train_model():
             return jsonify({"success": False, "msg": f"Tarea no soportada para {alg_key}"}), 400
     except Exception as e:
         return jsonify({"success": False, "msg": f"Error durante el entrenamiento: {e}"}), 400
-    
-    #Persistir modelo entrenado para predicción posterior
+    # Persistir modelo entrenado en archivo .pkl
     try:
         if kind in {"regression", "classification"}:
-            features_used = feature_candidates  # ya calculadas (todas numéricas excepto target)
+            features_used = feature_candidates
             target_used = target
         elif kind == "clustering":
+            # num_cols fue definido en el bloque de clustering
+            num_cols = num_cols if 'num_cols' in locals() else df.select_dtypes(include=["number"]).columns.tolist()
             features_used = num_cols
             target_used = None
         elif kind == "dimensionality_reduction":
-            features_used = num_cols
+            features_used = num_cols  # definido en el bloque de PCA
             target_used = None
         else:
             features_used = []
             target_used = None
-
-        trained_payload = {
-            "algorithm_key": alg_key,
-            "task": kind,
-            "features_used": features_used,
-            "target": target_used,
-            "state": _dump_model_state(model)  # captura pesos/bias/etc
-        }
-        project["trained_model"] = trained_payload
-    except Exception as _e:
-        # No bloquear entreno si falla la serialización; solo informar
-        print(f"[WARN] No se pudo serializar el modelo entrenado: {_e}")
-
+        # Adjuntar metadatos al modelo y serializar con joblib
+        model.features_used = features_used
+        model.target = target_used
+        model.algorithm_key = alg_key
+        model.task = kind
+        project_dir = os.path.join(DATASETS_DIR, f"project_{project_id}")
+        os.makedirs(project_dir, exist_ok=True)
+        model_path = os.path.join(project_dir, "model.pkl")
+        import joblib
+        joblib.dump(model, model_path)
+        project["model_path"] = model_path.replace("\\", "/")
+        # Quitar modelo entrenado previo en JSON si existe
+        project.pop("trained_model", None)
+    except Exception as e:
+        return jsonify({"success": False, "msg": f"No se pudo guardar el modelo entrenado: {e}"}), 500
     # Guardar información de entrenamiento en el proyecto
-    metrics["n_train"] = int(len(Xtr))
-    metrics["n_test"] = int(len(Xte))
-    metrics["features_used"] = feature_candidates
+    if kind in {"regression", "classification"}:
+        metrics["n_train"] = int(len(Xtr))
+        metrics["n_test"] = int(len(Xte))
+    else:
+        metrics["n_train"] = int(len(X))
+        metrics["n_test"] = 0
+    metrics["features_used"] = features_used
     project["last_train"] = {
         "at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "algorithm_key": alg_key,
@@ -916,7 +912,6 @@ def train_model():
         "metrics": metrics,
         "preview": preview
     }), 200
-
 
 @app.route("/predict_model", methods=["POST"])
 def predict_model():
@@ -932,105 +927,84 @@ def predict_model():
     project_id = data.get("project_id")
     user = data.get("user")
     inputs = data.get("inputs", {})
-
     if not project_id or not user:
         return jsonify({"success": False, "msg": "Faltan parámetros (project_id, user)"}), 400
-
-    # localizar proyecto
-    project = next((p for p in projects if p["id"] == project_id and p["user"] == user), None)
-    if not project:
-        return jsonify({"success": False, "msg": "Proyecto no encontrado"}), 404
-
-    tm = project.get("trained_model")
-    if not tm:
+    project, error = find_project(project_id, user)
+    if error:
+        msg, code = error
+        return jsonify({"success": False, "msg": msg}), code
+    # Verificar existencia del archivo de modelo entrenado
+    project_dir = os.path.join(DATASETS_DIR, f"project_{project_id}")
+    model_path = os.path.join(project_dir, "model.pkl")
+    if not os.path.exists(model_path):
         return jsonify({"success": False, "msg": "No hay un modelo entrenado guardado para este proyecto"}), 400
-
-    alg_key = tm.get("algorithm_key")
-    task = tm.get("task")
-    features_used = tm.get("features_used") or []
-    state = tm.get("state") or {}
-
-    # validar inputs contra features
+    # Cargar modelo entrenado desde el archivo
+    try:
+        model = joblib.load(model_path)
+    except Exception as e:
+        return jsonify({"success": False, "msg": f"No se pudo cargar el modelo entrenado: {e}"}), 500
+    # Preparar metadatos del modelo
+    alg_key = getattr(model, "algorithm_key", None)
+    task = getattr(model, "task", None)
+    features_used = getattr(model, "features_used", None) or []
+    # Validar que se proporcionen todos los features requeridos
     missing = [f for f in features_used if f not in inputs]
     if missing:
         return jsonify({"success": False, "msg": f"Faltan valores para: {', '.join(missing)}"}), 400
-
     try:
         xrow = []
         for f in features_used:
             val = inputs.get(f)
-            # validación numérica básica (tu pipeline de entrenamiento usa columnas numéricas)
             if val is None or (isinstance(val, str) and val.strip() == ""):
                 return jsonify({"success": False, "msg": f"El campo '{f}' está vacío"}), 400
             try:
                 xrow.append(float(val))
             except Exception:
                 return jsonify({"success": False, "msg": f"El campo '{f}' debe ser numérico"}), 400
-
-        Xnew = np.array([xrow], dtype=float)  # 1xN
+        Xnew = np.array([xrow], dtype=float)
     except Exception as e:
         return jsonify({"success": False, "msg": f"Error procesando la entrada: {e}"}), 400
-
-    # reconstruir el modelo desde el estado serializado
-    try:
-        model = _restore_model_from_state(alg_key, state)
-    except Exception as e:
-        return jsonify({"success": False, "msg": f"No se pudo reconstruir el modelo: {e}"}), 500
-
-    # predecir
+    # Realizar predicción usando el modelo cargado
     try:
         if task in {"regression", "classification", "clustering"}:
             if not hasattr(model, "predict"):
                 return jsonify({"success": False, "msg": "El modelo no expone método predict"}), 400
             yhat = model.predict(Xnew)
-            # asegurar formato
             if isinstance(yhat, (list, tuple)):
                 yhat = yhat[0]
             else:
-                # numpy array -> primer elemento
                 try:
                     yhat = np.array(yhat).reshape(-1)[0]
                 except Exception:
                     pass
-
             resp = {"success": True, "task": task, "prediction": _to_jsonable(yhat)}
-
-            # si el modelo expone predict_proba (p. ej. NaiveBayes/LogReg propia), adjúntalo (opcional)
             if hasattr(model, "predict_proba") and task == "classification":
                 try:
                     proba = model.predict_proba(Xnew)
                     if isinstance(proba, np.ndarray):
                         proba = proba.reshape(-1).tolist()
                     resp["proba"] = proba
-                    # si hay clases_ en el modelo, adjuntar
                     if hasattr(model, "classes_"):
                         resp["classes"] = _to_jsonable(getattr(model, "classes_"))
                 except Exception:
                     pass
-
             return jsonify(resp), 200
-
         elif task == "dimensionality_reduction":
-            # para PCA devolvemos las primeras componentes del punto
             if hasattr(model, "transform"):
                 Z = model.transform(Xnew)
             elif hasattr(model, "fit_transform"):
-                # no entrenamos aquí; si no hay transform, no podemos
                 return jsonify({"success": False, "msg": "El modelo PCA no tiene método transform disponible"}), 400
             else:
                 return jsonify({"success": False, "msg": "Modelo de reducción no soporta transform"}), 400
-
-            # devuelve primeras 5 componentes (o menos)
             import numpy as _np
             prev_m = min(5, Z.shape[1]) if len(Z.shape) == 2 else 1
             comps = [float(Z[0, j]) for j in range(prev_m)] if len(Z.shape) == 2 else [float(Z)]
             return jsonify({"success": True, "task": task, "components": comps}), 200
-
         else:
             return jsonify({"success": False, "msg": f"Tarea no soportada: {task}"}), 400
-
     except Exception as e:
         return jsonify({"success": False, "msg": f"Error durante la predicción: {e}"}), 400
+
 
 
 # Inicializacion del servidor
