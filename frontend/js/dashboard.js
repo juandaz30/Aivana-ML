@@ -62,6 +62,35 @@ const predictForm   = $("#predictForm");
 const predictInputs = $("#predictInputs");
 const predictResult = $("#predictResult");
 
+// ---- Parámetros del modelo (UI) ----
+const paramsPanel = $("#model-params-panel");
+const paramsFormEl = $("#paramsForm");
+const saveParamsBtn = $("#saveParamsBtn");
+const selectModelWithParamsBtn = $("#selectModelWithParamsBtn");
+
+let DEFAULTS_CACHE = null;
+
+// Mapeo UI -> backend (usa el mismo que el submit, pero global)
+const ALG_MAP = {
+  "linear":       "linear_regression",
+  "logistic":     "logistic_regression",
+  "perceptron":   "perceptron",
+  "decisiontree": "decision_tree",
+  "naivebayes":   "naive_bayes",
+  "mlp":          "mlp",
+  "pca":          "pca",
+  "kmeans":       "kmeans"
+};
+
+// Enums para desplegar <select> en vez de inputs de texto
+const PARAM_ENUMS = {
+  activation: ["relu", "tanh", "sigmoid"],
+  criterion: ["gini", "entropy"],
+  nb_type: ["gaussian", "multinomial", "bernoulli"],
+  init: ["k-means++", "random"]
+};
+
+
 /* ========= Utilidades de UI ========= */
 function show(el) { el?.classList.remove("hidden"); }
 function hide(el) { el?.classList.add("hidden"); }
@@ -91,6 +120,10 @@ function clearProjectDependentUI() {
   if (predictForm) hide(predictForm);
   if (predictInfo) { setText(predictInfo, "Entrena un modelo para habilitar la predicción con nuevos datos."); show(predictInfo); }
   hide(sectionPredict);
+
+  // Cambios Hiperatributos 
+  if (paramsFormEl) paramsFormEl.innerHTML = "";
+  if (paramsPanel) paramsPanel.classList.add("hidden"); 
 }
 
 /** Cambia el título del bloque de preview */
@@ -527,6 +560,22 @@ function ensurePreprocessControls() {
   };
 }
 
+// cambio parametros
+modelSelect?.addEventListener("change", async () => {
+  const uiVal = modelSelect.value;
+  const algKey = ALG_MAP[uiVal];
+  if (!algKey) { if (paramsPanel) paramsPanel.classList.add("hidden"); return; }
+  try {
+    const defaults = await fetchDefaultParams();
+    renderParamsForm(algKey, defaults, {}); // puedes pasar existingParams si los obtienes del proyecto
+    if (paramsPanel) paramsPanel.classList.remove("hidden");
+  } catch (e) {
+    console.error(e);
+    if (paramsPanel) paramsPanel.classList.add("hidden");
+  }
+});
+
+
 /* ========= Recomendación de modelo ========= */
 function ensureRecommendButton() {
   if (!recommendBtn) {
@@ -575,7 +624,61 @@ async function recommendModel() {
   `;
 }
 
-/* ========= Seleccionar modelo ========= */
+/* ========= set/model/params ========= */
+saveParamsBtn?.addEventListener("click", async () => {
+  const activeProject = JSON.parse(localStorage.getItem("activeProject") || "{}");
+  const user = JSON.parse(localStorage.getItem("user") || "{}");
+  if (!activeProject?.id || !user?.email) { alert("Proyecto/usuario no disponible."); return; }
+
+  const uiVal = modelSelect?.value;
+  const algorithm_key = ALG_MAP[uiVal];
+  if (!algorithm_key) { alert("Selecciona un algoritmo primero."); return; }
+
+  const params = readParamsForm();
+
+  const res = await apiFetch("/set_model_params", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      project_id: activeProject.id,
+      user: user.email,
+      algorithm_key,
+      params
+    })
+  });
+
+  if (!res?.success) { alert(res?.msg || "Error guardando parámetros"); return; }
+  alert("Parámetros guardados ✔");
+});
+
+selectModelWithParamsBtn?.addEventListener("click", async () => {
+  const activeProject = JSON.parse(localStorage.getItem("activeProject") || "{}");
+  const user = JSON.parse(localStorage.getItem("user") || "{}");
+  if (!activeProject?.id || !user?.email) { alert("Proyecto/usuario no disponible."); return; }
+
+  const uiVal = modelSelect?.value;
+  const algorithm_key = ALG_MAP[uiVal];
+  if (!algorithm_key) { alert("Selecciona un algoritmo primero."); return; }
+
+  const category = (uiVal === "pca" || uiVal === "kmeans") ? "unsupervised" : "supervised";
+  const params = readParamsForm();
+
+  const res = await apiFetch("/select_model", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      project_id: activeProject.id,
+      user: user.email,
+      category,
+      algorithm_key,
+      params
+    })
+  });
+
+  if (!res?.success) { alert(res?.msg || "No se pudo seleccionar el modelo"); return; }
+  alert("Modelo seleccionado y parámetros fijados ✔");
+});
+
 /* ========= Seleccionar modelo ========= */
 modelForm?.addEventListener("submit", async (e) => {
   e.preventDefault(); 
@@ -588,23 +691,13 @@ modelForm?.addEventListener("submit", async (e) => {
   if (!activeProject?.id) { alert("Selecciona un proyecto primero."); return; }
   if (!value) { alert("Selecciona un algoritmo."); return; }
 
-  // Mapeo de la opción del <select> a la clave de backend
-  const map = {
-    "linear":       "linear_regression",
-    "logistic":     "logistic_regression",
-    "perceptron":   "perceptron",
-    "decisiontree": "decision_tree",
-    "naivebayes":   "naive_bayes",
-    "mlp":          "mlp",
-    "pca":          "pca",
-    "kmeans":       "kmeans"
-  };
-
-  const algorithm_key = map[value];
+  const algorithm_key = ALG_MAP[value];
   if (!algorithm_key) { alert("Modelo no soportado."); return; }
 
-  // Derivar category que el backend exige
   const category = (value === "pca" || value === "kmeans") ? "unsupervised" : "supervised";
+
+  // Si el panel está visible, lee parámetros. Si no, manda vacío.
+  const params = paramsPanel && !paramsPanel.classList.contains("hidden") ? readParamsForm() : {};
 
   const data = await apiFetch("/select_model", {
     method: "POST",
@@ -612,8 +705,9 @@ modelForm?.addEventListener("submit", async (e) => {
     body: JSON.stringify({
       project_id: activeProject.id,
       user: user.email,
-      category,            // <<=== NUEVO
-      algorithm_key
+      category,
+      algorithm_key,
+      params
     })
   });
 
@@ -623,6 +717,7 @@ modelForm?.addEventListener("submit", async (e) => {
     alert(data?.msg || "No se pudo seleccionar el modelo.");
   }
 });
+
 
 
 /* ========= Entrenar modelo ========= */
@@ -714,6 +809,116 @@ function renderMetrics(m) {
 
 function capitalize(s) { return (s && s[0].toUpperCase() + s.slice(1)) || s; }
 
+function inferInputType(val) {
+  if (typeof val === "boolean") return "checkbox";
+  if (typeof val === "number") return "number";
+  if (val === null || val === undefined) return "text";
+  if (Array.isArray(val)) return "array";
+  return "text"; // strings, None, etc.
+}
+
+async function fetchDefaultParams() {
+  if (DEFAULTS_CACHE) return DEFAULTS_CACHE;
+  const res = await apiFetch("/get_default_params");
+  if (!res?.success) throw new Error("No se pudieron obtener DEFAULT_PARAMS");
+  DEFAULTS_CACHE = res.defaults || {};
+  return DEFAULTS_CACHE;
+}
+
+function renderParamsForm(algorithmKey, defaults, existingParams = {}) {
+  if (!paramsFormEl) return;
+  paramsFormEl.innerHTML = "";
+
+  const base = defaults[algorithmKey] || {};
+  const params = { ...base, ...existingParams };
+
+  Object.entries(params).forEach(([key, val]) => {
+    const wrap = document.createElement("div");
+    wrap.className = "row";
+    const label = document.createElement("label");
+    label.textContent = key;
+
+    if (PARAM_ENUMS[key]) {
+      const select = document.createElement("select");
+      select.name = key;
+      PARAM_ENUMS[key].forEach(opt => {
+        const o = document.createElement("option");
+        o.value = opt; o.textContent = opt;
+        if (String(val) === opt) o.selected = true;
+        select.appendChild(o);
+      });
+      wrap.appendChild(label);
+      wrap.appendChild(select);
+    } else {
+      const type = inferInputType(val);
+      if (type === "checkbox") {
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.name = key;
+        input.checked = Boolean(val);
+        wrap.appendChild(label);
+        wrap.appendChild(input);
+      } else if (type === "number") {
+        const input = document.createElement("input");
+        input.type = "number";
+        input.name = key;
+        input.step = "any";
+        input.value = Number.isFinite(val) ? val : 0;
+        wrap.appendChild(label);
+        wrap.appendChild(input);
+      } else if (type === "array") {
+        const input = document.createElement("input");
+        input.type = "text";
+        input.name = key;
+        input.value = Array.isArray(val) ? JSON.stringify(val) : "[]";
+        const hint = document.createElement("small");
+        hint.textContent = "Formato JSON, ej. [32] o [64,32]";
+        wrap.appendChild(label);
+        wrap.appendChild(input);
+        wrap.appendChild(hint);
+      } else {
+        const input = document.createElement("input");
+        input.type = "text";
+        input.name = key;
+        input.value = (val === null || val === undefined) ? "" : String(val);
+        wrap.appendChild(label);
+        wrap.appendChild(input);
+      }
+    }
+
+    paramsFormEl.appendChild(wrap);
+  });
+}
+
+function readParamsForm() {
+  if (!paramsFormEl) return {};
+  const inputs = Array.from(paramsFormEl.querySelectorAll("input,select"));
+  const params = {};
+  inputs.forEach(inp => {
+    const name = inp.name;
+    if (inp.tagName === "SELECT") {
+      params[name] = inp.value;
+    } else if (inp.type === "checkbox") {
+      params[name] = inp.checked;
+    } else if (inp.type === "number") {
+      const num = Number(inp.value);
+      params[name] = Number.isFinite(num) ? num : 0;
+    } else {
+      const v = (inp.value || "").trim();
+      if ((v.startsWith("[") && v.endsWith("]")) || (v.startsWith("{") && v.endsWith("}"))) {
+        try { params[name] = JSON.parse(v); }
+        catch { params[name] = v; }
+      } else if (v.toLowerCase() === "true")   { params[name] = true; }
+      else if (v.toLowerCase() === "false")    { params[name] = false; }
+      else if (v.toLowerCase() === "none" || v.toLowerCase() === "null" || v === "") { params[name] = null; }
+      else if (!isNaN(Number(v))) { params[name] = Number(v); }
+      else { params[name] = v; }
+    }
+  });
+  return params;
+}
+
+
 /* ========= Inicio ========= */
 window.addEventListener("DOMContentLoaded", () => {
   const user = JSON.parse(localStorage.getItem("user") || "null");
@@ -729,6 +934,7 @@ window.addEventListener("DOMContentLoaded", () => {
   // Asegurar controles que podrían no estar en HTML
   ensurePreprocessControls();
   ensureRecommendButton();
+  fetchDefaultParams().catch(console.warn);
 });
 
 // Cerrar sesión

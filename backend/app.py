@@ -617,6 +617,53 @@ DEFAULT_PARAMS = {
     "pca":                 {"n_components": None, "whiten": False}
 }
 
+@app.route("/get_default_params", methods=["GET"])
+def get_default_params():
+    """Devuelve el diccionario de parámetros por defecto para cada algoritmo."""
+    return jsonify({"success": True, "defaults": DEFAULT_PARAMS}), 200
+
+
+@app.route("/set_model_params", methods=["POST"])
+def set_model_params():
+    """
+    Actualiza solo los parámetros del modelo del proyecto.
+    Body JSON:
+      - project_id (int)
+      - user (str)
+      - algorithm_key (str)
+      - params (dict)
+    """
+    data = request.get_json() or {}
+    project_id = data.get("project_id")
+    user = data.get("user")
+    algorithm_key = data.get("algorithm_key")
+    params = data.get("params") or {}
+
+    if not project_id or not user or not algorithm_key:
+        return jsonify({"success": False, "msg": "Faltan parámetros (project_id, user, algorithm_key)"}), 400
+
+    project, error = find_project(project_id, user)
+    if error:
+        msg, code = error
+        return jsonify({"success": False, "msg": msg}), code
+
+    base_defaults = DEFAULT_PARAMS.get(algorithm_key, {})
+    merged = {**base_defaults, **params}
+
+    current_cfg = project.get("model_cfg") or {}
+    project["model_cfg"] = {
+        "category": current_cfg.get("category") or _task_kind(algorithm_key),
+        "algorithm_key": algorithm_key,
+        "params": merged
+    }
+    save_json(PROJECTS_FILE, projects)
+    return jsonify({
+        "success": True,
+        "msg": "Parámetros del modelo actualizados",
+        "model_cfg": project["model_cfg"]
+    }), 200
+
+
 # ------------------- Seleccionar Modelo -------------------
 @app.route("/select_model", methods=["POST"])
 def api_models_select():

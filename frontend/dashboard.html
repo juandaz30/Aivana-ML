@@ -86,6 +86,19 @@
             </form>
             <button type="button" id="btnRecommend" style="margin-top: 10px;">Sugerir modelo</button>
             <div id="model-recommendations" style="margin-top: 10px;"></div>
+            <!-- Panel de parámetros del modelo -->
+            <div id="model-params-panel" class="hidden" style="margin-top:12px;">
+                <div class="panel">
+                    <div class="panel-title">Parámetros del modelo</div>
+                    <form id="paramsForm" class="stack"></form>
+                    <div style="display:flex; gap:8px; margin-top:8px;">
+                        <button type="button" id="saveParamsBtn">Guardar parámetros</button>
+                        <button type="button" id="selectModelWithParamsBtn">Seleccionar modelo (guardar)</button>
+                    </div>
+                    <small style="display:block; margin-top:6px;">Tip: para listas usa JSON, ej. <code>[64,32]</code></small>
+                </div>
+            </div>
+
         </section>
         <!-- Entrenar modelo -->
         <section id="train-model" class="hidden">
