@@ -894,7 +894,7 @@ function readParamsForm() {
         try { params[name] = JSON.parse(v); } catch { params[name] = v; }
       } else if (v.toLowerCase() === "true")  { params[name] = true; }
       else if (v.toLowerCase() === "false")   { params[name] = false; }
-      else if (v.toLowerCase() === "none" || v.toLowerCase() === "null" || v === "") { params[name] = None; }
+      else if (v.toLowerCase() === "none" || v.toLowerCase() === "null" || v === "") { params[name] = null; }
       else if (!isNaN(Number(v))) { params[name] = Number(v); }
       else { params[name] = v; }
     }
