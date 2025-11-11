@@ -63,10 +63,11 @@ const predictInputs = $("#predictInputs");
 const predictResult = $("#predictResult");
 
 // ---- Parámetros del modelo (UI) ----
-const paramsPanel = $("#model-params-panel");
-const paramsFormEl = $("#paramsForm");
-const saveParamsBtn = $("#saveParamsBtn");
-const selectModelWithParamsBtn = $("#selectModelWithParamsBtn");
+const paramsPanel   = document.querySelector("#model-params-panel");
+const paramsFormEl  = document.querySelector("#paramsForm");
+const modelSelectEl = document.querySelector("#modelSelect");
+const saveParamsBtn = document.querySelector("#saveParamsBtn");
+const selectModelWithParamsBtn = document.querySelector("#selectModelWithParamsBtn");
 
 let DEFAULTS_CACHE = null;
 
@@ -628,52 +629,41 @@ async function recommendModel() {
 saveParamsBtn?.addEventListener("click", async () => {
   const activeProject = JSON.parse(localStorage.getItem("activeProject") || "{}");
   const user = JSON.parse(localStorage.getItem("user") || "{}");
-  if (!activeProject?.id || !user?.email) { alert("Proyecto/usuario no disponible."); return; }
 
-  const uiVal = modelSelect?.value;
+  const uiVal = modelSelectEl?.value;
   const algorithm_key = ALG_MAP[uiVal];
-  if (!algorithm_key) { alert("Selecciona un algoritmo primero."); return; }
+  if (!activeProject?.id || !user?.email || !algorithm_key) {
+    alert("Selecciona proyecto, usuario y modelo."); return;
+  }
 
   const params = readParamsForm();
-
-  const res = await apiFetch("/set_model_params", {
+  const res = await fetch("/set_model_params", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      project_id: activeProject.id,
-      user: user.email,
-      algorithm_key,
-      params
-    })
-  });
-
+    body: JSON.stringify({ project_id: activeProject.id, user: user.email, algorithm_key, params })
+  }).then(r=>r.json()).catch(()=>({success:false}));
   if (!res?.success) { alert(res?.msg || "Error guardando parámetros"); return; }
   alert("Parámetros guardados ✔");
 });
 
+
 selectModelWithParamsBtn?.addEventListener("click", async () => {
   const activeProject = JSON.parse(localStorage.getItem("activeProject") || "{}");
   const user = JSON.parse(localStorage.getItem("user") || "{}");
-  if (!activeProject?.id || !user?.email) { alert("Proyecto/usuario no disponible."); return; }
 
-  const uiVal = modelSelect?.value;
+  const uiVal = modelSelectEl?.value;
   const algorithm_key = ALG_MAP[uiVal];
-  if (!algorithm_key) { alert("Selecciona un algoritmo primero."); return; }
-
   const category = (uiVal === "pca" || uiVal === "kmeans") ? "unsupervised" : "supervised";
-  const params = readParamsForm();
+  if (!activeProject?.id || !user?.email || !algorithm_key) {
+    alert("Selecciona proyecto, usuario y modelo."); return;
+  }
 
-  const res = await apiFetch("/select_model", {
+  const params = readParamsForm();
+  const res = await fetch("/select_model", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      project_id: activeProject.id,
-      user: user.email,
-      category,
-      algorithm_key,
-      params
-    })
-  });
+    body: JSON.stringify({ project_id: activeProject.id, user: user.email, category, algorithm_key, params })
+  }).then(r=>r.json()).catch(()=>({success:false}));
 
   if (!res?.success) { alert(res?.msg || "No se pudo seleccionar el modelo"); return; }
   alert("Modelo seleccionado y parámetros fijados ✔");
@@ -814,14 +804,15 @@ function inferInputType(val) {
   if (typeof val === "number") return "number";
   if (val === null || val === undefined) return "text";
   if (Array.isArray(val)) return "array";
-  return "text"; // strings, None, etc.
+  return "text";
 }
 
 async function fetchDefaultParams() {
   if (DEFAULTS_CACHE) return DEFAULTS_CACHE;
-  const res = await apiFetch("/get_default_params");
-  if (!res?.success) throw new Error("No se pudieron obtener DEFAULT_PARAMS");
-  DEFAULTS_CACHE = res.defaults || {};
+  const r = await fetch("/get_default_params");
+  const js = await r.json();
+  if (!js?.success) throw new Error("No se pudieron obtener DEFAULT_PARAMS");
+  DEFAULTS_CACHE = js.defaults || {};
   return DEFAULTS_CACHE;
 }
 
@@ -833,8 +824,8 @@ function renderParamsForm(algorithmKey, defaults, existingParams = {}) {
   const params = { ...base, ...existingParams };
 
   Object.entries(params).forEach(([key, val]) => {
-    const wrap = document.createElement("div");
-    wrap.className = "row";
+    const row  = document.createElement("div");
+    row.className = "row";
     const label = document.createElement("label");
     label.textContent = key;
 
@@ -847,46 +838,40 @@ function renderParamsForm(algorithmKey, defaults, existingParams = {}) {
         if (String(val) === opt) o.selected = true;
         select.appendChild(o);
       });
-      wrap.appendChild(label);
-      wrap.appendChild(select);
+      row.appendChild(label);
+      row.appendChild(select);
     } else {
       const type = inferInputType(val);
+      let input = document.createElement("input");
+      input.name = key;
+
       if (type === "checkbox") {
-        const input = document.createElement("input");
         input.type = "checkbox";
-        input.name = key;
         input.checked = Boolean(val);
-        wrap.appendChild(label);
-        wrap.appendChild(input);
       } else if (type === "number") {
-        const input = document.createElement("input");
         input.type = "number";
-        input.name = key;
         input.step = "any";
         input.value = Number.isFinite(val) ? val : 0;
-        wrap.appendChild(label);
-        wrap.appendChild(input);
       } else if (type === "array") {
-        const input = document.createElement("input");
         input.type = "text";
-        input.name = key;
         input.value = Array.isArray(val) ? JSON.stringify(val) : "[]";
         const hint = document.createElement("small");
-        hint.textContent = "Formato JSON, ej. [32] o [64,32]";
-        wrap.appendChild(label);
-        wrap.appendChild(input);
-        wrap.appendChild(hint);
+        hint.textContent = "JSON, ej. [64,32]";
+        row.appendChild(label);
+        row.appendChild(input);
+        row.appendChild(hint);
+        paramsFormEl.appendChild(row);
+        return;
       } else {
-        const input = document.createElement("input");
         input.type = "text";
-        input.name = key;
         input.value = (val === null || val === undefined) ? "" : String(val);
-        wrap.appendChild(label);
-        wrap.appendChild(input);
       }
+
+      row.appendChild(label);
+      row.appendChild(input);
     }
 
-    paramsFormEl.appendChild(wrap);
+    paramsFormEl.appendChild(row);
   });
 }
 
@@ -906,17 +891,34 @@ function readParamsForm() {
     } else {
       const v = (inp.value || "").trim();
       if ((v.startsWith("[") && v.endsWith("]")) || (v.startsWith("{") && v.endsWith("}"))) {
-        try { params[name] = JSON.parse(v); }
-        catch { params[name] = v; }
-      } else if (v.toLowerCase() === "true")   { params[name] = true; }
-      else if (v.toLowerCase() === "false")    { params[name] = false; }
-      else if (v.toLowerCase() === "none" || v.toLowerCase() === "null" || v === "") { params[name] = null; }
+        try { params[name] = JSON.parse(v); } catch { params[name] = v; }
+      } else if (v.toLowerCase() === "true")  { params[name] = true; }
+      else if (v.toLowerCase() === "false")   { params[name] = false; }
+      else if (v.toLowerCase() === "none" || v.toLowerCase() === "null" || v === "") { params[name] = None; }
       else if (!isNaN(Number(v))) { params[name] = Number(v); }
       else { params[name] = v; }
     }
   });
   return params;
 }
+
+
+// ====== cuando cambie el modelo, pintar TODOS los parámetros ======
+modelSelectEl?.addEventListener("change", async () => {
+  const uiVal = modelSelectEl.value;
+  const algorithm_key = ALG_MAP[uiVal];
+  if (!algorithm_key) { paramsPanel?.classList.add("hidden"); return; }
+  try {
+    const defaults = await fetchDefaultParams();
+    renderParamsForm(algorithm_key, defaults, {});
+    paramsPanel?.classList.remove("hidden");
+  } catch (e) {
+    console.error(e);
+    paramsPanel?.classList.add("hidden");
+  }
+});
+
+
 
 
 /* ========= Inicio ========= */

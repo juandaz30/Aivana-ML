@@ -606,16 +606,91 @@ def recommend_model():
     }), 200
 
 # Parametros por defecto de los modelos
+# Parametros por defecto de los modelos (TODOS los del __init__ de cada clase)
 DEFAULT_PARAMS = {
-    "linear_regression":   {"learning_rate": 0.001, "n_iterations": 20000, "fit_intercept": True},
-    "logistic_regression": {"learning_rate": 0.1,  "n_iterations": 2000, "fit_intercept": True, "decision_threshold": 0.5},
-    "perceptron":          {"learning_rate": 1.0,  "n_iterations": 1000, "fit_intercept": True},
-    "decision_tree":       {"criterion": "gini",   "max_depth": None, "min_samples_split": 2},
-    "naive_bayes":         {"nb_type": "gaussian", "alpha": 1.0},
-    "mlp":                 {"hidden_layers": [32], "activation": "relu", "learning_rate": 0.01, "n_iterations": 200},
-    "kmeans":              {"n_clusters": 3, "max_iter": 300, "tol": 1e-4},
-    "pca":                 {"n_components": None, "whiten": False}
+    "linear_regression": {
+        "learning_rate": 0.01,
+        "n_iterations": 1000,
+        "fit_intercept": True,
+        "early_stopping": True,
+        "tolerance": 1e-6,
+        "patience": 10,
+        "normalize": True,
+        "max_grad_norm": 1e6,
+        "verbose": False
+    },
+    "logistic_regression": {
+        "learning_rate": 0.1,
+        "n_iterations": 2000,
+        "tolerance": 1e-6,
+        "early_stopping": False,
+        "verbose": False,
+        "fit_intercept": True,
+        "l2": 0.0,
+        "decision_threshold": 0.5,
+        "clip": 1e-15
+    },
+    "perceptron": {
+        "learning_rate": 1.0,
+        "n_iterations": 1000,
+        "fit_intercept": True,
+        "shuffle": True,
+        "random_state": None,
+        "early_stopping": False,
+        "patience": 5,
+        "verbose": False,
+        "callbacks": None
+    },
+    "decision_tree": {
+        "criterion": "gini",
+        "max_depth": None,
+        "min_samples_split": 2,
+        "min_samples_leaf": 1,
+        "max_features": None,
+        "random_state": None,
+        "verbose": False
+    },
+    "naive_bayes": {
+        "nb_type": "gaussian",
+        "var_smoothing": 1e-9,
+        "alpha": 1.0,
+        "class_priors": None,
+        "binarize": None,
+        "decision_threshold": 0.5
+    },
+    "mlp": {
+        "hidden_layers": [32],
+        "activation": "relu",
+        "learning_rate": 0.01,
+        "n_iterations": 2000,
+        "batch_size": None,
+        "l2": 0.0,
+        "early_stopping": False,
+        "patience": 10,
+        "validation_split": 0.0,
+        "tolerance": 1e-6,
+        "decision_threshold": 0.5,
+        "random_state": None,
+        "verbose": False,
+        "callbacks": None
+    },
+    "kmeans": {
+        "n_clusters": 8,
+        "init": "k-means++",
+        "n_init": 10,
+        "max_iter": 300,
+        "tol": 1e-4,
+        "random_state": None,
+        "verbose": False,
+        "callbacks": None
+    },
+    "pca": {
+        "n_components": None,
+        "whiten": False,
+        "copy": True
+    }
 }
+
 
 @app.route("/get_default_params", methods=["GET"])
 def get_default_params():
