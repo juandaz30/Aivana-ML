@@ -91,6 +91,46 @@ const PARAM_ENUMS = {
   init: ["k-means++", "random"]
 };
 
+const PARAM_TOOLTIPS = {
+  learning_rate: "Qué tanto cambia el modelo cada vez que aprende. Valores altos aprenden rápido pero pueden fallar; valores bajos son más estables pero lentos.",
+  n_iterations: "Cantidad de veces que el modelo repasa los datos para aprender.",
+  fit_intercept: "Si está activo, el modelo calcula primero un punto de partida base antes de ajustar los datos.",
+  early_stopping: "Detiene el entrenamiento cuando deja de mejorar para ahorrar tiempo y evitar errores.",
+  tolerance: "Mejora mínima necesaria para considerar que el modelo sigue aprendiendo.",
+  patience: "Intentos sin mejora que se permiten antes de parar cuando early_stopping está activo.",
+  normalize: "Ajusta todas las columnas para que tengan escalas parecidas antes de entrenar.",
+  max_grad_norm: "Límite máximo para los cambios internos en cada paso. Mantenerlo bajo evita saltos bruscos.",
+  verbose: "Muestra mensajes detallados durante el entrenamiento para ver qué está ocurriendo.",
+  l2: "Penalización que mantiene los valores del modelo más pequeños para evitar que se pase de optimista.",
+  decision_threshold: "Número entre 0 y 1 que define a partir de qué probabilidad se elige la clase positiva.",
+  clip: "Valor mínimo usado para evitar divisiones por cero o resultados infinitos durante el cálculo.",
+  shuffle: "Mezcla las filas del dataset en cada pasada para que el modelo no aprenda un orden fijo.",
+  random_state: "Número fijo para repetir exactamente los mismos resultados en futuros entrenamientos.",
+  callbacks: "Acciones personalizadas que se ejecutan en momentos clave del entrenamiento. Déjalo vacío si no necesitas nada extra.",
+  criterion: "Regla que indica cómo decide el árbol la mejor pregunta en cada rama.",
+  max_depth: "Número máximo de preguntas seguidas que puede hacer el árbol antes de responder.",
+  min_samples_split: "Cantidad mínima de filas necesarias para que el árbol divida una rama en dos.",
+  min_samples_leaf: "Cantidad mínima de filas que debe haber en cada hoja del árbol.",
+  max_features: "Número máximo de columnas que el árbol revisa para buscar la mejor pregunta. Vacío significa usar todas.",
+  nb_type: "Tipo de versión de Naive Bayes según tus datos: gaussiano para números, multinomial para conteos, bernoulli para sí/no.",
+  var_smoothing: "Pequeño valor que se suma para evitar divisiones por cero cuando las varianzas son muy pequeñas.",
+  alpha: "Cantidad de suavizado para evitar probabilidades en cero. Valores mayores generan predicciones más cautas.",
+  class_priors: "Probabilidades iniciales de cada clase si quieres forzar un sesgo. Déjalo vacío para calcularlo desde los datos.",
+  binarize: "Valor límite para convertir números en 0 o 1 antes de entrenar en la versión Bernoulli.",
+  hidden_layers: "Lista con la cantidad de neuronas en cada capa intermedia de la red. Ejemplo: [64, 32].",
+  activation: "Función que determina cómo responde cada neurona. Cambiarla puede hacer que la red aprenda patrones distintos.",
+  batch_size: "Número de filas que se usan juntas antes de ajustar el modelo. Valores pequeños hacen ajustes frecuentes; los grandes son más estables.",
+  validation_split: "Porción del dataset reservada para medir cómo va el entrenamiento sin tocar esos datos.",
+  n_clusters: "Cantidad de grupos que K-Means intentará formar.",
+  init: "Forma inicial de ubicar los centros de los grupos antes de empezar a ajustar.",
+  n_init: "Veces que K-Means se reinicia desde posiciones distintas para quedarse con el mejor resultado.",
+  max_iter: "Límite máximo de ciclos de ajuste que puede hacer el modelo.",
+  tol: "Mejora mínima necesaria para seguir iterando. Si los cambios son menores, el proceso se detiene.",
+  n_components: "Número de columnas nuevas que PCA mantendrá después de comprimir la información.",
+  whiten: "Si está activo, ajusta las nuevas columnas de PCA para que tengan la misma escala.",
+  copy: "Si está activo, trabaja sobre una copia del dataset y deja intactos los datos originales."
+};
+
 
 /* ========= Utilidades de UI ========= */
 function show(el) { el?.classList.remove("hidden"); }
@@ -828,6 +868,10 @@ function renderParamsForm(algorithmKey, defaults, existingParams = {}) {
     row.className = "row";
     const label = document.createElement("label");
     label.textContent = key;
+    const tooltipText = PARAM_TOOLTIPS[key];
+    if (tooltipText) {
+      label.appendChild(createTooltipIcon(tooltipText));
+    }
 
     if (PARAM_ENUMS[key]) {
       const select = document.createElement("select");
@@ -873,6 +917,23 @@ function renderParamsForm(algorithmKey, defaults, existingParams = {}) {
 
     paramsFormEl.appendChild(row);
   });
+}
+
+function createTooltipIcon(text) {
+  const wrapper = document.createElement("span");
+  wrapper.className = "param-tooltip";
+  wrapper.tabIndex = 0;
+  wrapper.setAttribute("role", "img");
+  wrapper.setAttribute("aria-label", text);
+  const icon = document.createElement("span");
+  icon.className = "param-tooltip-icon";
+  icon.textContent = "?";
+  const bubble = document.createElement("span");
+  bubble.className = "param-tooltip-text";
+  bubble.textContent = text;
+  wrapper.appendChild(icon);
+  wrapper.appendChild(bubble);
+  return wrapper;
 }
 
 function readParamsForm() {
