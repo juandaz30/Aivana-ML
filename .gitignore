@@ -23,6 +23,7 @@ data/
 *.xlsx
 *.json
 !backend/users.json
+*.pkl
 
 # ==== Archivos de sistema ====
 .DS_Store
