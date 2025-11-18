@@ -55,6 +55,7 @@ const trainingStatus = $("#trainingStatus");
 // Resultados
 const metricsBox = $("#metrics");
 const chartsBox = $("#charts");
+let trainingChartInstance = null;
 
 // Predecir (nueva sección)
 const predictInfo   = $("#predictInfo");
@@ -153,7 +154,13 @@ function clearProjectDependentUI() {
   // Entrenamiento / resultados
   if (trainingStatus) trainingStatus.innerHTML = "";
   if (metricsBox) metricsBox.innerHTML = "";
-  if (chartsBox) chartsBox.innerHTML = "";
+  if (chartsBox) {
+    chartsBox.innerHTML = "";
+    if (trainingChartInstance) {
+      trainingChartInstance.destroy();
+      trainingChartInstance = null;
+    }
+  }
 
   // Predecir
   if (predictInputs) predictInputs.innerHTML = "";
@@ -780,6 +787,7 @@ trainButton?.addEventListener("click", async () => {
   // Mostrar métricas en Resultados
   setText(trainingStatus, "Entrenamiento completado.");
   renderMetrics(data.metrics);
+  renderTrainingCurve(data.training_curve);
 
   // Habilitar sección Predecir
   if (data.metrics && Array.isArray(data.metrics.features_used)) {
@@ -835,6 +843,117 @@ function renderMetrics(m) {
 
   html += `</ul></div>`;
   metricsBox.innerHTML = html;
+}
+
+function renderTrainingCurve(curve) {
+  if (!chartsBox) return;
+
+  if (trainingChartInstance) {
+    trainingChartInstance.destroy();
+    trainingChartInstance = null;
+  }
+
+  chartsBox.innerHTML = "";
+
+  const panel = document.createElement("div");
+  panel.className = "panel";
+  const title = document.createElement("div");
+  title.className = "panel-title";
+  title.textContent = curve?.title || "Progreso del entrenamiento";
+  panel.appendChild(title);
+
+  if (!curve || !Array.isArray(curve.series) || !curve.series.length) {
+    const msg = document.createElement("p");
+    msg.textContent = "El modelo no expuso datos iterativos para graficar.";
+    panel.appendChild(msg);
+    chartsBox.appendChild(panel);
+    return;
+  }
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "training-chart-wrapper";
+  const canvas = document.createElement("canvas");
+  wrapper.appendChild(canvas);
+  panel.appendChild(wrapper);
+
+  if (curve.notes) {
+    const notes = document.createElement("p");
+    notes.className = "chart-notes";
+    notes.textContent = curve.notes;
+    panel.appendChild(notes);
+  }
+
+  chartsBox.appendChild(panel);
+
+  if (typeof Chart === "undefined") {
+    const fallback = document.createElement("p");
+    fallback.textContent = "No fue posible cargar la librería de gráficos.";
+    panel.appendChild(fallback);
+    return;
+  }
+
+  const palette = ["#1d3557", "#e63946", "#2a9d8f", "#ffb703", "#6d597a", "#118ab2", "#fb8500", "#8ecae6"];
+  const datasets = curve.series
+    .map((serie, idx) => {
+      const values = Array.isArray(serie?.values) ? serie.values : [];
+      const points = values
+        .map((value, i) => (typeof value === "number" && Number.isFinite(value) ? { x: i + 1, y: value } : null))
+        .filter(Boolean);
+      return {
+        label: serie?.name || `Serie ${idx + 1}`,
+        data: points,
+        borderColor: palette[idx % palette.length],
+        backgroundColor: palette[idx % palette.length] + "33",
+        fill: false,
+        tension: 0.2,
+        spanGaps: true
+      };
+    })
+    .filter((d) => d.data.length);
+
+  if (!datasets.length) {
+    const msg = document.createElement("p");
+    msg.textContent = "No hay valores numéricos para mostrar.";
+    panel.appendChild(msg);
+    return;
+  }
+
+  trainingChartInstance = new Chart(canvas.getContext("2d"), {
+    type: "line",
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      parsing: false,
+      interaction: { intersect: false, mode: "index" },
+      scales: {
+        x: {
+          type: "linear",
+          title: { display: true, text: curve.xLabel || "Iteraciones" },
+          ticks: { precision: 0 }
+        },
+        y: {
+          title: { display: true, text: curve.yLabel || "Valor" },
+          beginAtZero: false
+        }
+      },
+      plugins: {
+        legend: { display: datasets.length > 1 },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const val = ctx.parsed.y;
+              if (typeof val === "number") {
+                const formatted = Number.isInteger(val) ? val : Number(val.toFixed(4));
+                return `${ctx.dataset.label}: ${formatted}`;
+              }
+              return `${ctx.dataset.label}: ${val}`;
+            }
+          }
+        }
+      }
+    }
+  });
 }
 
 function capitalize(s) { return (s && s[0].toUpperCase() + s.slice(1)) || s; }

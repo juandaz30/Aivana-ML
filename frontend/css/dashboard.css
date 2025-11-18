@@ -386,3 +386,31 @@ input.input-error {
     visibility: visible;
     opacity: 1;
 }
+
+/* Charts */
+#charts {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+#charts .panel {
+    width: 100%;
+}
+
+.training-chart-wrapper {
+    position: relative;
+    width: 100%;
+    min-height: 320px;
+}
+
+.training-chart-wrapper canvas {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.chart-notes {
+    font-size: 13px;
+    color: #4f5b66;
+    margin-top: 8px;
+}
