@@ -123,7 +123,7 @@ def _restore_model_from_state(alg_key, state: dict):
         try:
             setattr(model, k, _maybe_to_numpy(v))
         except Exception:
-            # si algún atributo no aplica, lo ignoramos
+            # si algún atributo no aplica, lo ignoramos hola
             pass
     return model
 
