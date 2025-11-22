@@ -336,6 +336,7 @@ input.input-error {
     color: #fff;
     font-size: 12px;
     cursor: help;
+    margin-left: 6px;
 }
 
 .param-tooltip-icon {
@@ -368,6 +369,18 @@ input.input-error {
     box-shadow: 0 6px 14px rgba(0,0,0,0.18);
     transition: opacity .15s ease;
     z-index: 20;
+}
+
+.param-tooltip.range {
+    background: #e76f51;
+}
+
+.param-tooltip.range .param-tooltip-text {
+    background: #e76f51;
+}
+
+.param-tooltip.range .param-tooltip-text::after {
+    border-color: #e76f51 transparent transparent transparent;
 }
 
 .param-tooltip-text::after {

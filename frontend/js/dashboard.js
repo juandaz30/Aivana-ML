@@ -92,6 +92,46 @@ const PARAM_ENUMS = {
   init: ["k-means++", "random"]
 };
 
+const PARAM_RANGES = {
+  learning_rate: "1e-4 a 1 (típico 0.001-0.1)",
+  n_iterations: "100 a 5000",
+  fit_intercept: "true/false",
+  early_stopping: "true/false",
+  tolerance: "1e-9 a 1e-2",
+  patience: "3 a 50",
+  normalize: "true/false",
+  max_grad_norm: "1 a 1e6",
+  verbose: "true/false",
+  l2: "0 a 10",
+  decision_threshold: "0 a 1",
+  clip: "1e-20 a 1e-5",
+  shuffle: "true/false",
+  random_state: "Entero, ej. 0-10_000",
+  callbacks: "Lista vacía o funciones personalizadas",
+  criterion: "gini / entropy",
+  max_depth: "1-50 o vacío para sin límite",
+  min_samples_split: "2-50",
+  min_samples_leaf: "1-20",
+  max_features: "1 al total de columnas o vacío",
+  nb_type: "gaussian / multinomial / bernoulli",
+  var_smoothing: "1e-12 a 1e-6",
+  alpha: "0 a 5",
+  class_priors: "Lista de probabilidades que sumen 1",
+  binarize: "0 a 1",
+  hidden_layers: "Listas cortas, ej. [16], [64,32]",
+  activation: "relu / tanh / sigmoid",
+  batch_size: "8 a 512",
+  validation_split: "0 a 0.3",
+  n_clusters: "2 a 20",
+  init: "k-means++ o random",
+  n_init: "1 a 50",
+  max_iter: "50 a 1000",
+  tol: "1e-6 a 1e-2",
+  n_components: "1 al número de columnas",
+  whiten: "true/false",
+  copy: "true/false"
+};
+
 const PARAM_TOOLTIPS = {
   learning_rate: "Qué tanto cambia el modelo cada vez que aprende. Valores altos aprenden rápido pero pueden fallar; valores bajos son más estables pero lentos.",
   n_iterations: "Cantidad de veces que el modelo repasa los datos para aprender.",
@@ -417,6 +457,14 @@ function viewProject(project) {
   }
 }
 
+function resetEditButton(editBtn, project, row) {
+  const clone = editBtn.cloneNode(true);
+  clone.textContent = "Editar";
+  editBtn.replaceWith(clone);
+  clone.addEventListener("click", (e) => enableEditMode(e, project, row));
+  return clone;
+}
+
 /* ========= Editar proyecto inline ========= */
 function enableEditMode(event, project, row) {
   row = row || event.target.closest("tr");
@@ -440,6 +488,14 @@ function enableEditMode(event, project, row) {
   cancelBtn.classList.add("cancel-btn");
   editBtn.after(cancelBtn);
 
+  const finalizeEdit = (newName, newDesc) => {
+    nameCell.textContent = newName;
+    descCell.textContent = newDesc || "-";
+    row.classList.remove("editing");
+    if (cancelBtn.parentNode) cancelBtn.remove();
+    resetEditButton(editBtn, project, row);
+  };
+
   editBtn.onclick = async () => {
     const newName = row.querySelector(".edit-name").value.trim();
     const newDesc = row.querySelector(".edit-desc").value.trim();
@@ -449,49 +505,43 @@ function enableEditMode(event, project, row) {
 
     // Si no hay cambios, cancelar
     if (newName === oldName && (newDesc === oldDesc || newDesc === "-")) {
-      cancelBtn.click(); return;
+      finalizeEdit(oldName, oldDesc);
+      return;
     }
 
     // Oculta secciones si cambias el nombre (para evitar incoherencias)
     hide(sectionUpload); hide(sectionSelect); hide(sectionTrain); hide(sectionResults); hide(sectionPredict);
     clearProjectDependentUI();
 
-    const data = await apiFetch("/edit_project", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: project.id, name: newName, description: newDesc, user: user.email })
-    });
-    if (data?.success) {
-      alert("Proyecto actualizado correctamente");
-      project.name = newName; project.description = newDesc;
-      nameCell.textContent = newName;
-      descCell.textContent = newDesc || "-";
-      // Actualizar localStorage si este proyecto es el activo
-      const activeProject = JSON.parse(localStorage.getItem("activeProject") || "{}");
-      if (activeProject?.id === project.id) {
-        activeProject.name = newName; activeProject.description = newDesc;
-        localStorage.setItem("activeProject", JSON.stringify(activeProject));
+    try {
+      const data = await apiFetch("/edit_project", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: project.id, name: newName, description: newDesc, user: user.email })
+      });
+
+      if (data?.success) {
+        alert("Proyecto actualizado correctamente");
+        project.name = newName; project.description = newDesc;
+        // Actualizar localStorage si este proyecto es el activo
+        const activeProject = JSON.parse(localStorage.getItem("activeProject") || "{}");
+        if (activeProject?.id === project.id) {
+          activeProject.name = newName; activeProject.description = newDesc;
+          localStorage.setItem("activeProject", JSON.stringify(activeProject));
+        }
+        finalizeEdit(newName, newDesc);
+      } else {
+        alert(data?.msg || "No se pudieron guardar los cambios");
+        finalizeEdit(oldName, oldDesc);
       }
-    } else {
-      alert(data?.msg || "No se pudieron guardar los cambios");
-      nameCell.textContent = oldName;
-      descCell.textContent = oldDesc || "-";
+    } catch (err) {
+      console.error(err);
+      alert("No se pudieron guardar los cambios");
+      finalizeEdit(oldName, oldDesc);
     }
-
-    row.classList.remove("editing");
-    editBtn.textContent = "Editar";
-    cancelBtn.remove();
-    editBtn.onclick = (e) => enableEditMode(e, project, row);
   };
 
-  cancelBtn.onclick = () => {
-    nameCell.textContent = oldName;
-    descCell.textContent = oldDesc || "-";
-    row.classList.remove("editing");
-    editBtn.textContent = "Editar";
-    cancelBtn.remove();
-    editBtn.onclick = (e) => enableEditMode(e, project, row);
-  };
+  cancelBtn.onclick = () => finalizeEdit(oldName, oldDesc);
 }
 
 /* ========= Eventos: Crear proyecto ========= */
@@ -988,9 +1038,9 @@ function renderParamsForm(algorithmKey, defaults, existingParams = {}) {
     const label = document.createElement("label");
     label.textContent = key;
     const tooltipText = PARAM_TOOLTIPS[key];
-    if (tooltipText) {
-      label.appendChild(createTooltipIcon(tooltipText));
-    }
+    const rangeText = PARAM_RANGES[key];
+    if (tooltipText) label.appendChild(createTooltipIcon(tooltipText, "info"));
+    if (rangeText) label.appendChild(createTooltipIcon(`Rango sugerido: ${rangeText}`, "range"));
 
     if (PARAM_ENUMS[key]) {
       const select = document.createElement("select");
@@ -1038,15 +1088,15 @@ function renderParamsForm(algorithmKey, defaults, existingParams = {}) {
   });
 }
 
-function createTooltipIcon(text) {
+function createTooltipIcon(text, variant = "info") {
   const wrapper = document.createElement("span");
-  wrapper.className = "param-tooltip";
+  wrapper.className = `param-tooltip ${variant}`;
   wrapper.tabIndex = 0;
   wrapper.setAttribute("role", "img");
   wrapper.setAttribute("aria-label", text);
   const icon = document.createElement("span");
   icon.className = "param-tooltip-icon";
-  icon.textContent = "?";
+  icon.textContent = variant === "range" ? "↔" : "?";
   const bubble = document.createElement("span");
   bubble.className = "param-tooltip-text";
   bubble.textContent = text;

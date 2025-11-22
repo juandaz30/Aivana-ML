@@ -608,7 +608,11 @@ def recommend_model():
     # Recalcular tipos sin la y
     X_num = X.select_dtypes(include=["number"]).columns.tolist()
     X_cat = [c for c in X.columns if c not in X_num]
-    task = "regression" if pd.api.types.is_numeric_dtype(y) else "classification"
+    is_numeric_target = pd.api.types.is_numeric_dtype(y)
+    unique_values = y.nunique(dropna=True)
+    unique_ratio = unique_values / max(len(y), 1)
+    looks_categorical_numeric = is_numeric_target and (unique_values <= 20 and unique_ratio < 0.2)
+    task = "classification" if (not is_numeric_target or looks_categorical_numeric) else "regression"
     recommendations = []
     if task == "regression":
         # Heurística simple de linealidad: correlación absoluta media entre y y features numericas
