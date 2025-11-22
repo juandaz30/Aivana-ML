@@ -92,6 +92,70 @@ const PARAM_ENUMS = {
   init: ["k-means++", "random"]
 };
 
+const PARAM_RANGES = {
+  learning_rate: "1e-4 a 1 (típico 0.001-0.1)",
+  n_iterations: "100 a 5000",
+  fit_intercept: "true/false",
+  early_stopping: "true/false",
+  tolerance: "1e-9 a 1e-2",
+  patience: "3 a 50",
+  normalize: "true/false",
+  max_grad_norm: "1 a 1e6",
+  verbose: "true/false",
+  l2: "0 a 10",
+  decision_threshold: "0 a 1",
+  clip: "1e-20 a 1e-5",
+  shuffle: "true/false",
+  random_state: "Entero, ej. 0-10_000",
+  callbacks: "Lista vacía o funciones personalizadas",
+  criterion: "gini / entropy",
+  max_depth: "1-50 o vacío para sin límite",
+  min_samples_split: "2-50",
+  min_samples_leaf: "1-20",
+  max_features: "1 al total de columnas o vacío",
+  nb_type: "gaussian / multinomial / bernoulli",
+  var_smoothing: "1e-12 a 1e-6",
+  alpha: "0 a 5",
+  class_priors: "Lista de probabilidades que sumen 1",
+  binarize: "0 a 1",
+  hidden_layers: "Listas cortas, ej. [16], [64,32]",
+  activation: "relu / tanh / sigmoid",
+  batch_size: "8 a 512",
+  validation_split: "0 a 0.3",
+  n_clusters: "2 a 20",
+  init: "k-means++ o random",
+  n_init: "1 a 50",
+  max_iter: "50 a 1000",
+  tol: "1e-6 a 1e-2",
+  n_components: "1 al número de columnas",
+  whiten: "true/false",
+  copy: "true/false"
+};
+
+// Explicaciones rápidas de métricas de entrenamiento
+const METRIC_TOOLTIPS = {
+  mse: "Error cuadrático medio: promedio de los errores al cuadrado. Penaliza mucho los errores grandes.",
+  rmse: "Raíz del error cuadrático medio: error típico en las mismas unidades que el objetivo.",
+  mae: "Error absoluto medio: promedio de la distancia absoluta entre predicciones y valores reales.",
+  mape: "Porcentaje de error absoluto medio: error relativo promedio respecto al valor real (ignora valores cero).",
+  r2: "R²: proporción de la variabilidad del objetivo explicada por el modelo. 1 es perfecto, 0 no mejora al promedio.",
+  accuracy: "Accuracy: proporción de aciertos totales sobre todas las predicciones.",
+  precision_macro: "Precisión macro: promedio de precisiones por clase (qué tan pocas falsas alarmas hay).",
+  recall_macro: "Recall macro: promedio de coberturas por clase (qué tantos positivos reales se capturan).",
+  f1_macro: "F1 macro: balance entre precisión y recall promediado sobre las clases.",
+  per_class: "Métricas por clase: precisión, recall, F1 y soporte de cada etiqueta." ,
+  confusion_matrix: "Matriz de confusión: tabla de aciertos y errores por combinación de clase real vs predicha.",
+  n_samples: "Cantidad de ejemplos usados para ajustar el modelo de clustering.",
+  inertia: "Inercia: suma de distancias cuadráticas a los centroides; menor suele indicar mejor cohesión.",
+  cluster_sizes: "Tamaño de cada cluster: cuántas filas fueron asignadas a cada grupo.",
+  cluster_centers: "Centroide de cada cluster: coordenadas promedio de las filas que lo componen.",
+  explained_variance_ratio: "Proporción de varianza explicada por cada componente principal (PCA).",
+  n_train: "Filas usadas para entrenar (split de entrenamiento).",
+  n_test: "Filas usadas para evaluar internamente (split de prueba).",
+  features_used: "Columnas del dataset utilizadas como entrada del modelo.",
+  target: "Columna objetivo indicada por el usuario durante el entrenamiento."
+};
+
 const PARAM_TOOLTIPS = {
   learning_rate: "Qué tanto cambia el modelo cada vez que aprende. Valores altos aprenden rápido pero pueden fallar; valores bajos son más estables pero lentos.",
   n_iterations: "Cantidad de veces que el modelo repasa los datos para aprender.",
@@ -417,6 +481,14 @@ function viewProject(project) {
   }
 }
 
+function resetEditButton(editBtn, project, row) {
+  const clone = editBtn.cloneNode(true);
+  clone.textContent = "Editar";
+  editBtn.replaceWith(clone);
+  clone.addEventListener("click", (e) => enableEditMode(e, project, row));
+  return clone;
+}
+
 /* ========= Editar proyecto inline ========= */
 function enableEditMode(event, project, row) {
   row = row || event.target.closest("tr");
@@ -440,6 +512,14 @@ function enableEditMode(event, project, row) {
   cancelBtn.classList.add("cancel-btn");
   editBtn.after(cancelBtn);
 
+  const finalizeEdit = (newName, newDesc) => {
+    nameCell.textContent = newName;
+    descCell.textContent = newDesc || "-";
+    row.classList.remove("editing");
+    if (cancelBtn.parentNode) cancelBtn.remove();
+    resetEditButton(editBtn, project, row);
+  };
+
   editBtn.onclick = async () => {
     const newName = row.querySelector(".edit-name").value.trim();
     const newDesc = row.querySelector(".edit-desc").value.trim();
@@ -449,49 +529,43 @@ function enableEditMode(event, project, row) {
 
     // Si no hay cambios, cancelar
     if (newName === oldName && (newDesc === oldDesc || newDesc === "-")) {
-      cancelBtn.click(); return;
+      finalizeEdit(oldName, oldDesc);
+      return;
     }
 
     // Oculta secciones si cambias el nombre (para evitar incoherencias)
     hide(sectionUpload); hide(sectionSelect); hide(sectionTrain); hide(sectionResults); hide(sectionPredict);
     clearProjectDependentUI();
 
-    const data = await apiFetch("/edit_project", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: project.id, name: newName, description: newDesc, user: user.email })
-    });
-    if (data?.success) {
-      alert("Proyecto actualizado correctamente");
-      project.name = newName; project.description = newDesc;
-      nameCell.textContent = newName;
-      descCell.textContent = newDesc || "-";
-      // Actualizar localStorage si este proyecto es el activo
-      const activeProject = JSON.parse(localStorage.getItem("activeProject") || "{}");
-      if (activeProject?.id === project.id) {
-        activeProject.name = newName; activeProject.description = newDesc;
-        localStorage.setItem("activeProject", JSON.stringify(activeProject));
+    try {
+      const data = await apiFetch("/edit_project", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: project.id, name: newName, description: newDesc, user: user.email })
+      });
+
+      if (data?.success) {
+        alert("Proyecto actualizado correctamente");
+        project.name = newName; project.description = newDesc;
+        // Actualizar localStorage si este proyecto es el activo
+        const activeProject = JSON.parse(localStorage.getItem("activeProject") || "{}");
+        if (activeProject?.id === project.id) {
+          activeProject.name = newName; activeProject.description = newDesc;
+          localStorage.setItem("activeProject", JSON.stringify(activeProject));
+        }
+        finalizeEdit(newName, newDesc);
+      } else {
+        alert(data?.msg || "No se pudieron guardar los cambios");
+        finalizeEdit(oldName, oldDesc);
       }
-    } else {
-      alert(data?.msg || "No se pudieron guardar los cambios");
-      nameCell.textContent = oldName;
-      descCell.textContent = oldDesc || "-";
+    } catch (err) {
+      console.error(err);
+      alert("No se pudieron guardar los cambios");
+      finalizeEdit(oldName, oldDesc);
     }
-
-    row.classList.remove("editing");
-    editBtn.textContent = "Editar";
-    cancelBtn.remove();
-    editBtn.onclick = (e) => enableEditMode(e, project, row);
   };
 
-  cancelBtn.onclick = () => {
-    nameCell.textContent = oldName;
-    descCell.textContent = oldDesc || "-";
-    row.classList.remove("editing");
-    editBtn.textContent = "Editar";
-    cancelBtn.remove();
-    editBtn.onclick = (e) => enableEditMode(e, project, row);
-  };
+  cancelBtn.onclick = () => finalizeEdit(oldName, oldDesc);
 }
 
 /* ========= Eventos: Crear proyecto ========= */
@@ -801,11 +875,15 @@ function renderMetrics(m) {
   if (!m) { metricsBox.innerHTML = ""; return; }
   let html = `<div class="panel"><div class="panel-title">Métricas (${m.task ? capitalize(m.task) : "Modelo"})</div><ul>`;
   const safe = (v) => (typeof v === "number" ? Number(v.toFixed ? v.toFixed(6) : v) : v);
+  const tip = (key) => METRIC_TOOLTIPS[key] ? ` <span class="param-tooltip metric-tip" tabindex="0" aria-label="${METRIC_TOOLTIPS[key]}"><span class="param-tooltip-icon">?</span><span class="param-tooltip-text">${METRIC_TOOLTIPS[key]}</span></span>` : "";
+  const metricRow = (key, label, value) => `<li><b>${label}:</b>${tip(key)} ${value}</li>`;
 
   if (m.task === "regression") {
-    html += `<li><b>MSE:</b> ${safe(m.mse)}</li>`;
-    html += `<li><b>MAE:</b> ${safe(m.mae)}</li>`;
-    html += `<li><b>R²:</b> ${safe(m.r2)}</li>`;
+    html += metricRow("mse", "MSE", safe(m.mse));
+    html += metricRow("rmse", "RMSE", safe(m.rmse));
+    html += metricRow("mae", "MAE", safe(m.mae));
+    html += metricRow("mape", "MAPE", safe(m.mape));
+    html += metricRow("r2", "R²", safe(m.r2));
     if (m.intercept !== undefined) html += `<li><b>Intercept:</b> ${safe(m.intercept)}</li>`;
     if (m.coefficients) {
       html += `<li><b>Coeficientes:</b><ul>`;
@@ -815,10 +893,21 @@ function renderMetrics(m) {
       html += `</ul></li>`;
     }
   } else if (m.task === "classification") {
-    html += `<li><b>Accuracy:</b> ${safe(m.accuracy)}</li>`;
+    html += metricRow("accuracy", "Accuracy", safe(m.accuracy));
+    html += metricRow("precision_macro", "Precisión macro", safe(m.precision_macro));
+    html += metricRow("recall_macro", "Recall macro", safe(m.recall_macro));
+    html += metricRow("f1_macro", "F1 macro", safe(m.f1_macro));
+    if (m.per_class && Object.keys(m.per_class).length) {
+      html += `<li><b>Por clase:</b>${tip("per_class")}<table class="mini"><thead><tr><th>Clase</th><th>Prec.</th><th>Recall</th><th>F1</th><th>Soporte</th></tr></thead><tbody>`;
+      Object.keys(m.per_class).sort((a,b)=>Number(a)-Number(b)).forEach((lbl)=>{
+        const row = m.per_class[lbl];
+        html += `<tr><td>${lbl}</td><td>${safe(row.precision)}</td><td>${safe(row.recall)}</td><td>${safe(row.f1)}</td><td>${row.support}</td></tr>`;
+      });
+      html += `</tbody></table></li>`;
+    }
     if (m.confusion_matrix) {
       const labels = Object.keys(m.confusion_matrix).map(Number).sort((a,b)=>a-b);
-      html += `<li><b>Matriz de confusión:</b><table class="mini"><thead><tr><th></th>${labels.map(l=>`<th>${l}</th>`).join("")}</tr></thead><tbody>`;
+      html += `<li><b>Matriz de confusión:</b>${tip("confusion_matrix")}<table class="mini"><thead><tr><th></th>${labels.map(l=>`<th>${l}</th>`).join("")}</tr></thead><tbody>`;
       labels.forEach((i)=> {
         html += `<tr><th>${i}</th>`;
         labels.forEach((j)=> {
@@ -829,17 +918,29 @@ function renderMetrics(m) {
       html += `</tbody></table></li>`;
     }
   } else if (m.task === "clustering") {
-    html += `<li><b>Muestras:</b> ${safe(m.n_samples)}</li>`;
-    if (m.inertia !== undefined) html += `<li><b>Inercia:</b> ${safe(m.inertia)}</li>`;
+    html += metricRow("n_samples", "Muestras", safe(m.n_samples));
+    if (m.inertia !== undefined) html += metricRow("inertia", "Inercia", safe(m.inertia));
+    if (m.cluster_sizes) {
+      html += `<li><b>Tamaños por cluster:</b>${tip("cluster_sizes")}<ul>`;
+      Object.entries(m.cluster_sizes).forEach(([k,v])=>{ html += `<li>Cluster ${k}: ${v}</li>`; });
+      html += `</ul></li>`;
+    }
+    if (m.cluster_centers) {
+      html += `<li><b>Centroides:</b>${tip("cluster_centers")}<ul>`;
+      Object.entries(m.cluster_centers).forEach(([cid, coords])=>{
+        html += `<li>Cluster ${cid}: ${Object.entries(coords).map(([feat,val])=>`${feat}=${safe(val)}`).join(", ")}</li>`;
+      });
+      html += `</ul></li>`;
+    }
   } else if (m.task === "dimensionality_reduction") {
     if (Array.isArray(m.explained_variance_ratio)) {
-      html += `<li><b>Varianza explicada:</b> ${m.explained_variance_ratio.map((v)=>safe(v)).join(", ")}</li>`;
+      html += metricRow("explained_variance_ratio", "Varianza explicada", m.explained_variance_ratio.map((v)=>safe(v)).join(", "));
     }
   }
-  if (m.n_train !== undefined) html += `<li><b>n_train:</b> ${safe(m.n_train)}</li>`;
-  if (m.n_test !== undefined)  html += `<li><b>n_test:</b> ${safe(m.n_test)}</li>`;
-  if (Array.isArray(m.features_used)) html += `<li><b>Features usadas:</b> ${m.features_used.join(", ")}</li>`;
-  if (m.target) html += `<li><b>Target:</b> ${m.target}</li>`;
+  if (m.n_train !== undefined) html += metricRow("n_train", "n_train", safe(m.n_train));
+  if (m.n_test !== undefined)  html += metricRow("n_test", "n_test", safe(m.n_test));
+  if (Array.isArray(m.features_used)) html += metricRow("features_used", "Features usadas", m.features_used.join(", "));
+  if (m.target) html += metricRow("target", "Target", m.target);
 
   html += `</ul></div>`;
   metricsBox.innerHTML = html;
@@ -988,9 +1089,9 @@ function renderParamsForm(algorithmKey, defaults, existingParams = {}) {
     const label = document.createElement("label");
     label.textContent = key;
     const tooltipText = PARAM_TOOLTIPS[key];
-    if (tooltipText) {
-      label.appendChild(createTooltipIcon(tooltipText));
-    }
+    const rangeText = PARAM_RANGES[key];
+    if (tooltipText) label.appendChild(createTooltipIcon(tooltipText, "info"));
+    if (rangeText) label.appendChild(createTooltipIcon(`Rango sugerido: ${rangeText}`, "range"));
 
     if (PARAM_ENUMS[key]) {
       const select = document.createElement("select");
@@ -1038,15 +1139,15 @@ function renderParamsForm(algorithmKey, defaults, existingParams = {}) {
   });
 }
 
-function createTooltipIcon(text) {
+function createTooltipIcon(text, variant = "info") {
   const wrapper = document.createElement("span");
-  wrapper.className = "param-tooltip";
+  wrapper.className = `param-tooltip ${variant}`;
   wrapper.tabIndex = 0;
   wrapper.setAttribute("role", "img");
   wrapper.setAttribute("aria-label", text);
   const icon = document.createElement("span");
   icon.className = "param-tooltip-icon";
-  icon.textContent = "?";
+  icon.textContent = variant === "range" ? "↔" : "?";
   const bubble = document.createElement("span");
   bubble.className = "param-tooltip-text";
   bubble.textContent = text;
