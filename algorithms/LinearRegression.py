@@ -27,6 +27,7 @@ class LinearRegression:
         self.x_mean_ = None
         self.x_std_  = None
         self.y_mean_ = None
+        self.loss_history_ = []
 
     @staticmethod
     def _safe_mse(y_true, y_pred):
@@ -68,10 +69,12 @@ class LinearRegression:
 
         best_loss = np.inf
         wait = 0
+        self.loss_history_.clear()
 
         for it in range(self.n_iterations):
             y_pred = Xn @ self.weights
             loss = self._safe_mse(yc, y_pred)
+            self.loss_history_.append(float(loss))
 
             if self.verbose and (it % max(1, self.n_iterations // 10) == 0):
                 print(f"[LR] iter={it} mse={loss:.6f}")
