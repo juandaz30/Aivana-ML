@@ -336,6 +336,7 @@ input.input-error {
     color: #fff;
     font-size: 12px;
     cursor: help;
+    margin-left: 6px;
 }
 
 .param-tooltip-icon {
@@ -370,6 +371,18 @@ input.input-error {
     z-index: 20;
 }
 
+.param-tooltip.range {
+    background: #e76f51;
+}
+
+.param-tooltip.range .param-tooltip-text {
+    background: #e76f51;
+}
+
+.param-tooltip.range .param-tooltip-text::after {
+    border-color: #e76f51 transparent transparent transparent;
+}
+
 .param-tooltip-text::after {
     content: "";
     position: absolute;
@@ -385,6 +398,11 @@ input.input-error {
 .param-tooltip:focus .param-tooltip-text {
     visibility: visible;
     opacity: 1;
+}
+
+.param-tooltip.metric-tip {
+    margin-left: 4px;
+    background: #1d3557;
 }
 
 /* Charts */
