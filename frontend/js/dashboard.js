@@ -55,6 +55,7 @@ const trainingStatus = $("#trainingStatus");
 // Resultados
 const metricsBox = $("#metrics");
 const chartsBox = $("#charts");
+let trainingChartInstance = null;
 
 // Predecir (nueva sección)
 const predictInfo   = $("#predictInfo");
@@ -91,6 +92,86 @@ const PARAM_ENUMS = {
   init: ["k-means++", "random"]
 };
 
+const PARAM_TOOLTIPS = {
+  learning_rate: "Qué tanto cambia el modelo cada vez que aprende. Valores altos aprenden rápido pero pueden fallar; valores bajos son más estables pero lentos.",
+  n_iterations: "Cantidad de veces que el modelo repasa los datos para aprender.",
+  fit_intercept: "Si está activo, el modelo calcula primero un punto de partida base antes de ajustar los datos.",
+  early_stopping: "Detiene el entrenamiento cuando deja de mejorar para ahorrar tiempo y evitar errores.",
+  tolerance: "Mejora mínima necesaria para considerar que el modelo sigue aprendiendo.",
+  patience: "Intentos sin mejora que se permiten antes de parar cuando early_stopping está activo.",
+  normalize: "Ajusta todas las columnas para que tengan escalas parecidas antes de entrenar.",
+  max_grad_norm: "Límite máximo para los cambios internos en cada paso. Mantenerlo bajo evita saltos bruscos.",
+  verbose: "Muestra mensajes detallados durante el entrenamiento para ver qué está ocurriendo.",
+  l2: "Penalización que mantiene los valores del modelo más pequeños para evitar que se pase de optimista.",
+  decision_threshold: "Número entre 0 y 1 que define a partir de qué probabilidad se elige la clase positiva.",
+  clip: "Valor mínimo usado para evitar divisiones por cero o resultados infinitos durante el cálculo.",
+  shuffle: "Mezcla las filas del dataset en cada pasada para que el modelo no aprenda un orden fijo.",
+  random_state: "Número fijo para repetir exactamente los mismos resultados en futuros entrenamientos.",
+  callbacks: "Acciones personalizadas que se ejecutan en momentos clave del entrenamiento. Déjalo vacío si no necesitas nada extra.",
+  criterion: "Regla que indica cómo decide el árbol la mejor pregunta en cada rama.",
+  max_depth: "Número máximo de preguntas seguidas que puede hacer el árbol antes de responder.",
+  min_samples_split: "Cantidad mínima de filas necesarias para que el árbol divida una rama en dos.",
+  min_samples_leaf: "Cantidad mínima de filas que debe haber en cada hoja del árbol.",
+  max_features: "Número máximo de columnas que el árbol revisa para buscar la mejor pregunta. Vacío significa usar todas.",
+  nb_type: "Tipo de versión de Naive Bayes según tus datos: gaussiano para números, multinomial para conteos, bernoulli para sí/no.",
+  var_smoothing: "Pequeño valor que se suma para evitar divisiones por cero cuando las varianzas son muy pequeñas.",
+  alpha: "Cantidad de suavizado para evitar probabilidades en cero. Valores mayores generan predicciones más cautas.",
+  class_priors: "Probabilidades iniciales de cada clase si quieres forzar un sesgo. Déjalo vacío para calcularlo desde los datos.",
+  binarize: "Valor límite para convertir números en 0 o 1 antes de entrenar en la versión Bernoulli.",
+  hidden_layers: "Lista con la cantidad de neuronas en cada capa intermedia de la red. Ejemplo: [64, 32].",
+  activation: "Función que determina cómo responde cada neurona. Cambiarla puede hacer que la red aprenda patrones distintos.",
+  batch_size: "Número de filas que se usan juntas antes de ajustar el modelo. Valores pequeños hacen ajustes frecuentes; los grandes son más estables.",
+  validation_split: "Porción del dataset reservada para medir cómo va el entrenamiento sin tocar esos datos.",
+  n_clusters: "Cantidad de grupos que K-Means intentará formar.",
+  init: "Forma inicial de ubicar los centros de los grupos antes de empezar a ajustar.",
+  n_init: "Veces que K-Means se reinicia desde posiciones distintas para quedarse con el mejor resultado.",
+  max_iter: "Límite máximo de ciclos de ajuste que puede hacer el modelo.",
+  tol: "Mejora mínima necesaria para seguir iterando. Si los cambios son menores, el proceso se detiene.",
+  n_components: "Número de columnas nuevas que PCA mantendrá después de comprimir la información.",
+  whiten: "Si está activo, ajusta las nuevas columnas de PCA para que tengan la misma escala.",
+  copy: "Si está activo, trabaja sobre una copia del dataset y deja intactos los datos originales."
+};
+
+const PARAM_RANGE_HINTS = {
+  learning_rate: "Suele ir entre 0.0001 y 0.5. Empieza bajo (0.01) y sube solo si aprende muy lento.",
+  n_iterations: "Entre 100 y 10,000 para la mayoría de casos. Aumenta si el modelo sigue mejorando.",
+  fit_intercept: "Normalmente se deja activado (true). Solo desactiva si tus datos ya están centrados en cero.",
+  early_stopping: "Actívalo cuando quieras detenerte en cuanto deje de mejorar (útil con más de 500 iteraciones).",
+  tolerance: "Entre 1e-8 y 1e-3. Valores pequeños exigen mejoras muy finas.",
+  patience: "Entre 3 y 20. Más paciencia permite seguir intentando aunque no mejore mucho.",
+  normalize: "Úsalo (true) si las columnas tienen escalas muy distintas. Si ya normalizaste, déjalo en false.",
+  max_grad_norm: "Entre 1e3 y 1e7. Solo ajústalo si notas saltos bruscos en el entrenamiento.",
+  verbose: "Déjalo en false salvo que necesites revisar el proceso paso a paso.",
+  l2: "Prueba entre 0 y 1. Valores de 0.0001 a 0.1 son comunes para evitar sobreajuste leve.",
+  decision_threshold: "Entre 0.3 y 0.7 para la mayoría de casos. Baja si prefieres captar más positivos.",
+  clip: "Entre 1e-20 y 1e-8. Úsalo pequeño para prevenir divisiones por cero.",
+  shuffle: "Déjalo en true salvo que necesites repetir exactamente el mismo orden.",
+  random_state: "Usa un entero (ej. 42) para repetir resultados. Déjalo vacío para aleatoriedad natural.",
+  callbacks: "Déjalo vacío a menos que tengas funciones personalizadas para monitorear.",
+  criterion: "Normalmente 'gini' o 'entropy'. Usa gini para rapidez y entropy si quieres dividir con más detalle.",
+  max_depth: "Entre 3 y 20. Más profundidad captura más detalles pero puede sobreajustar.",
+  min_samples_split: "Entre 2 y 20. Valores mayores obligan al árbol a ser más simple.",
+  min_samples_leaf: "Entre 1 y 10. Aumenta si quieres hojas con más ejemplos y respuestas más estables.",
+  max_features: "Déjalo vacío para usar todas. Si tienes muchas columnas, prueba un número entre 3 y 10.",
+  nb_type: "'gaussian' para números, 'multinomial' para conteos y 'bernoulli' para 0/1. Elige según tus columnas.",
+  var_smoothing: "Entre 1e-12 y 1e-6. Auméntalo si tus varianzas son casi cero.",
+  alpha: "Entre 0.1 y 2. Valores altos suavizan más y evitan ceros.",
+  class_priors: "Déjalo vacío salvo que quieras forzar un sesgo inicial (ej. [0.7, 0.3]).",
+  binarize: "Elige un umbral típico entre 0.0 y 1.0 para convertir a 0/1 en Bernoulli.",
+  hidden_layers: "Listas cortas de 1 a 3 capas suelen bastar. Ejemplos: [16], [32,16], [64,32,16].",
+  activation: "Las más usadas: relu o tanh. Cambia solo si la red no aprende bien.",
+  batch_size: "Entre 8 y 128. Lotes pequeños reaccionan rápido, grandes son más estables.",
+  validation_split: "Entre 0.1 y 0.3 para evaluar durante el entrenamiento. Déjalo en 0 si no necesitas dividir.",
+  n_clusters: "Entre 2 y 15 para casos comunes. Ajusta según cuántos grupos esperas.",
+  init: "'k-means++' suele ser la mejor opción. 'random' solo si quieres experimentar.",
+  n_init: "Entre 5 y 20 para resultados consistentes. Más reinicios reducen la mala suerte inicial.",
+  max_iter: "Entre 100 y 500 en la mayoría de datasets. Sube solo si no converge.",
+  tol: "Entre 1e-6 y 1e-3. Bajos exigen más mejora antes de parar.",
+  n_components: "Entre 2 y 10 en la mayoría de casos. No elijas más que tus columnas originales.",
+  whiten: "Déjalo en false salvo que necesites escalas idénticas en los componentes.",
+  copy: "Déjalo en true para no tocar tu dataset original."
+};
+
 
 /* ========= Utilidades de UI ========= */
 function show(el) { el?.classList.remove("hidden"); }
@@ -113,7 +194,13 @@ function clearProjectDependentUI() {
   // Entrenamiento / resultados
   if (trainingStatus) trainingStatus.innerHTML = "";
   if (metricsBox) metricsBox.innerHTML = "";
-  if (chartsBox) chartsBox.innerHTML = "";
+  if (chartsBox) {
+    chartsBox.innerHTML = "";
+    if (trainingChartInstance) {
+      trainingChartInstance.destroy();
+      trainingChartInstance = null;
+    }
+  }
 
   // Predecir
   if (predictInputs) predictInputs.innerHTML = "";
@@ -405,36 +492,43 @@ function enableEditMode(event, project, row) {
       cancelBtn.click(); return;
     }
 
-    // Oculta secciones si cambias el nombre (para evitar incoherencias)
-    hide(sectionUpload); hide(sectionSelect); hide(sectionTrain); hide(sectionResults); hide(sectionPredict);
-    clearProjectDependentUI();
+    try {
+      // Oculta secciones si cambias el nombre (para evitar incoherencias)
+      hide(sectionUpload); hide(sectionSelect); hide(sectionTrain); hide(sectionResults); hide(sectionPredict);
+      clearProjectDependentUI();
 
-    const data = await apiFetch("/edit_project", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: project.id, name: newName, description: newDesc, user: user.email })
-    });
-    if (data?.success) {
-      alert("Proyecto actualizado correctamente");
-      project.name = newName; project.description = newDesc;
-      nameCell.textContent = newName;
-      descCell.textContent = newDesc || "-";
-      // Actualizar localStorage si este proyecto es el activo
-      const activeProject = JSON.parse(localStorage.getItem("activeProject") || "{}");
-      if (activeProject?.id === project.id) {
-        activeProject.name = newName; activeProject.description = newDesc;
-        localStorage.setItem("activeProject", JSON.stringify(activeProject));
+      const data = await apiFetch("/edit_project", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: project.id, name: newName, description: newDesc, user: user.email })
+      });
+      if (data?.success) {
+        alert("Proyecto actualizado correctamente");
+        project.name = newName; project.description = newDesc;
+        nameCell.textContent = newName;
+        descCell.textContent = newDesc || "-";
+        // Actualizar localStorage si este proyecto es el activo
+        const activeProject = JSON.parse(localStorage.getItem("activeProject") || "{}");
+        if (activeProject?.id === project.id) {
+          activeProject.name = newName; activeProject.description = newDesc;
+          localStorage.setItem("activeProject", JSON.stringify(activeProject));
+        }
+      } else {
+        alert(data?.msg || "No se pudieron guardar los cambios");
+        nameCell.textContent = oldName;
+        descCell.textContent = oldDesc || "-";
       }
-    } else {
-      alert(data?.msg || "No se pudieron guardar los cambios");
+    } catch (err) {
+      console.error("Error al editar proyecto", err);
+      alert("Ocurrió un error al editar el proyecto. Inténtalo de nuevo.");
       nameCell.textContent = oldName;
       descCell.textContent = oldDesc || "-";
+    } finally {
+      row.classList.remove("editing");
+      editBtn.textContent = "Editar";
+      cancelBtn.remove();
+      editBtn.onclick = (e) => enableEditMode(e, project, row);
     }
-
-    row.classList.remove("editing");
-    editBtn.textContent = "Editar";
-    cancelBtn.remove();
-    editBtn.onclick = (e) => enableEditMode(e, project, row);
   };
 
   cancelBtn.onclick = () => {
@@ -740,6 +834,7 @@ trainButton?.addEventListener("click", async () => {
   // Mostrar métricas en Resultados
   setText(trainingStatus, "Entrenamiento completado.");
   renderMetrics(data.metrics);
+  renderTrainingCurve(data.training_curve);
 
   // Habilitar sección Predecir
   if (data.metrics && Array.isArray(data.metrics.features_used)) {
@@ -797,6 +892,117 @@ function renderMetrics(m) {
   metricsBox.innerHTML = html;
 }
 
+function renderTrainingCurve(curve) {
+  if (!chartsBox) return;
+
+  if (trainingChartInstance) {
+    trainingChartInstance.destroy();
+    trainingChartInstance = null;
+  }
+
+  chartsBox.innerHTML = "";
+
+  const panel = document.createElement("div");
+  panel.className = "panel";
+  const title = document.createElement("div");
+  title.className = "panel-title";
+  title.textContent = curve?.title || "Progreso del entrenamiento";
+  panel.appendChild(title);
+
+  if (!curve || !Array.isArray(curve.series) || !curve.series.length) {
+    const msg = document.createElement("p");
+    msg.textContent = "El modelo no expuso datos iterativos para graficar.";
+    panel.appendChild(msg);
+    chartsBox.appendChild(panel);
+    return;
+  }
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "training-chart-wrapper";
+  const canvas = document.createElement("canvas");
+  wrapper.appendChild(canvas);
+  panel.appendChild(wrapper);
+
+  if (curve.notes) {
+    const notes = document.createElement("p");
+    notes.className = "chart-notes";
+    notes.textContent = curve.notes;
+    panel.appendChild(notes);
+  }
+
+  chartsBox.appendChild(panel);
+
+  if (typeof Chart === "undefined") {
+    const fallback = document.createElement("p");
+    fallback.textContent = "No fue posible cargar la librería de gráficos.";
+    panel.appendChild(fallback);
+    return;
+  }
+
+  const palette = ["#1d3557", "#e63946", "#2a9d8f", "#ffb703", "#6d597a", "#118ab2", "#fb8500", "#8ecae6"];
+  const datasets = curve.series
+    .map((serie, idx) => {
+      const values = Array.isArray(serie?.values) ? serie.values : [];
+      const points = values
+        .map((value, i) => (typeof value === "number" && Number.isFinite(value) ? { x: i + 1, y: value } : null))
+        .filter(Boolean);
+      return {
+        label: serie?.name || `Serie ${idx + 1}`,
+        data: points,
+        borderColor: palette[idx % palette.length],
+        backgroundColor: palette[idx % palette.length] + "33",
+        fill: false,
+        tension: 0.2,
+        spanGaps: true
+      };
+    })
+    .filter((d) => d.data.length);
+
+  if (!datasets.length) {
+    const msg = document.createElement("p");
+    msg.textContent = "No hay valores numéricos para mostrar.";
+    panel.appendChild(msg);
+    return;
+  }
+
+  trainingChartInstance = new Chart(canvas.getContext("2d"), {
+    type: "line",
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      parsing: false,
+      interaction: { intersect: false, mode: "index" },
+      scales: {
+        x: {
+          type: "linear",
+          title: { display: true, text: curve.xLabel || "Iteraciones" },
+          ticks: { precision: 0 }
+        },
+        y: {
+          title: { display: true, text: curve.yLabel || "Valor" },
+          beginAtZero: false
+        }
+      },
+      plugins: {
+        legend: { display: datasets.length > 1 },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const val = ctx.parsed.y;
+              if (typeof val === "number") {
+                const formatted = Number.isInteger(val) ? val : Number(val.toFixed(4));
+                return `${ctx.dataset.label}: ${formatted}`;
+              }
+              return `${ctx.dataset.label}: ${val}`;
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
 function capitalize(s) { return (s && s[0].toUpperCase() + s.slice(1)) || s; }
 
 function inferInputType(val) {
@@ -828,6 +1034,10 @@ function renderParamsForm(algorithmKey, defaults, existingParams = {}) {
     row.className = "row";
     const label = document.createElement("label");
     label.textContent = key;
+    const tooltipText = PARAM_TOOLTIPS[key];
+    const rangeText = PARAM_RANGE_HINTS[key];
+    if (tooltipText) label.appendChild(createTooltipIcon(tooltipText, "?", "param-tooltip-info"));
+    if (rangeText) label.appendChild(createTooltipIcon(rangeText, "↔", "param-tooltip-range"));
 
     if (PARAM_ENUMS[key]) {
       const select = document.createElement("select");
@@ -873,6 +1083,23 @@ function renderParamsForm(algorithmKey, defaults, existingParams = {}) {
 
     paramsFormEl.appendChild(row);
   });
+}
+
+function createTooltipIcon(text, iconChar = "?", extraClass = "") {
+  const wrapper = document.createElement("span");
+  wrapper.className = `param-tooltip ${extraClass}`.trim();
+  wrapper.tabIndex = 0;
+  wrapper.setAttribute("role", "img");
+  wrapper.setAttribute("aria-label", text);
+  const icon = document.createElement("span");
+  icon.className = "param-tooltip-icon";
+  icon.textContent = iconChar;
+  const bubble = document.createElement("span");
+  bubble.className = "param-tooltip-text";
+  bubble.textContent = text;
+  wrapper.appendChild(icon);
+  wrapper.appendChild(bubble);
+  return wrapper;
 }
 
 function readParamsForm() {

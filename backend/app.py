@@ -143,6 +143,113 @@ def _task_kind(alg_key: str) -> str:
         return "dimensionality_reduction"
     return "unknown"
 
+
+def _series_from_sequence(seq):
+    if not seq:
+        return None
+    cleaned = []
+    for val in seq:
+        if val is None:
+            cleaned.append(None)
+            continue
+        try:
+            cleaned.append(float(val))
+        except Exception:
+            try:
+                cleaned.append(float(np.asarray(val).item()))
+            except Exception:
+                continue
+    return cleaned if cleaned else None
+
+
+def _training_curve_payload(model, alg_key):
+    if model is None:
+        return None
+
+    def make_series(values, name):
+        seq = _series_from_sequence(values)
+        if not seq:
+            return None
+        return {"name": name, "values": seq}
+
+    if alg_key == "linear_regression":
+        serie = make_series(getattr(model, "loss_history_", None), "MSE en entrenamiento")
+        if serie:
+            return {
+                "title": "Error cuadrático medio por iteración",
+                "xLabel": "Iteraciones",
+                "yLabel": "Error cuadrático medio",
+                "series": [serie]
+            }
+
+    if alg_key == "logistic_regression":
+        serie = make_series(getattr(model, "loss_history", None), "Pérdida logarítmica")
+        if serie:
+            return {
+                "title": "Pérdida durante el entrenamiento",
+                "xLabel": "Iteraciones",
+                "yLabel": "Log loss",
+                "series": [serie]
+            }
+
+    if alg_key == "perceptron":
+        series = []
+        total = make_series(getattr(model, "errors_history_", None), "Errores totales")
+        if total:
+            series.append(total)
+        per_class = getattr(model, "errors_history_per_class_", {}) or {}
+        classes = list(getattr(model, "classes_", []))
+        for idx, values in per_class.items():
+            serie = make_series(values, "")
+            if not serie:
+                continue
+            try:
+                idx_int = int(idx)
+            except Exception:
+                idx_int = idx
+            label = classes[idx_int] if 0 <= idx_int < len(classes) else idx_int
+            if label is None:
+                serie["name"] = "Errores por clase"
+            else:
+                serie["name"] = f"Errores clase {label}"
+            series.append(serie)
+        if series:
+            return {
+                "title": "Errores por época (Perceptrón)",
+                "xLabel": "Épocas",
+                "yLabel": "Errores",
+                "series": series
+            }
+
+    if alg_key == "mlp":
+        series = []
+        loss = make_series(getattr(model, "loss_history_", None), "Pérdida entrenamiento")
+        if loss:
+            series.append(loss)
+        val_loss = make_series(getattr(model, "val_loss_history_", None), "Pérdida validación")
+        if val_loss:
+            series.append(val_loss)
+        if series:
+            return {
+                "title": "Pérdida por época (Red neuronal)",
+                "xLabel": "Épocas",
+                "yLabel": "Pérdida",
+                "series": series
+            }
+
+    if alg_key == "kmeans":
+        serie = make_series(getattr(model, "inertia_history_", None), "Inercia del mejor intento")
+        if serie:
+            return {
+                "title": "Inercia por iteración (K-Means)",
+                "xLabel": "Iteraciones",
+                "yLabel": "Inercia",
+                "series": [serie],
+                "notes": "Valores registrados para la ejecución con mejor resultado."
+            }
+
+    return None
+
 # ------------------- CONFIG JSON's -------------------
 # Rutas de los archivos JSON
 USERS_FILE = os.path.join(BASE_DIR, "users.json")
@@ -844,6 +951,7 @@ def train_model():
     metrics = {}
     preview = {}
     feature_candidates = []
+    training_curve = None
     try:
         if kind in {"regression", "classification"}:
             if not target or target not in df.columns:
@@ -1027,12 +1135,14 @@ def train_model():
         "target": target,
         "metrics": metrics
     }
+    training_curve = _training_curve_payload(model, alg_key)
     save_json(PROJECTS_FILE, projects)
     return jsonify({
         "success": True,
         "msg": "Entrenamiento completado",
         "metrics": metrics,
-        "preview": preview
+        "preview": preview,
+        "training_curve": training_curve
     }), 200
 
 @app.route("/predict_model", methods=["POST"])
