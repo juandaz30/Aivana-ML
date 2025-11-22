@@ -608,7 +608,11 @@ def recommend_model():
     # Recalcular tipos sin la y
     X_num = X.select_dtypes(include=["number"]).columns.tolist()
     X_cat = [c for c in X.columns if c not in X_num]
-    task = "regression" if pd.api.types.is_numeric_dtype(y) else "classification"
+    is_numeric_target = pd.api.types.is_numeric_dtype(y)
+    unique_values = y.nunique(dropna=True)
+    unique_ratio = unique_values / max(len(y), 1)
+    looks_categorical_numeric = is_numeric_target and (unique_values <= 20 and unique_ratio < 0.2)
+    task = "classification" if (not is_numeric_target or looks_categorical_numeric) else "regression"
     recommendations = []
     if task == "regression":
         # Heurística simple de linealidad: correlación absoluta media entre y y features numericas
@@ -977,10 +981,13 @@ def train_model():
                 y_true = yte.values.astype(float)
                 mse = float(np.mean((yhat - y_true) ** 2))
                 mae = float(np.mean(np.abs(yhat - y_true)))
+                rmse = float(np.sqrt(mse))
+                denom = np.where(y_true == 0, 1e-8, np.abs(y_true))
+                mape = float(np.mean(np.abs((y_true - yhat) / denom)))
                 ss_res = float(np.sum((y_true - yhat) ** 2))
                 ss_tot = float(np.sum((y_true - np.mean(y_true)) ** 2)) or 1.0
                 r2 = 1.0 - ss_res / ss_tot
-                metrics = {"task": "regression", "mse": mse, "mae": mae, "r2": r2}
+                metrics = {"task": "regression", "mse": mse, "mae": mae, "rmse": rmse, "mape": mape, "r2": r2}
                 try:
                     if alg_key == "linear_regression":
                         # pesos aprendidos en el espacio normalizado
@@ -1023,9 +1030,40 @@ def train_model():
                 acc = float(np.mean(y_true == y_pred))
                 labels = np.unique(np.concatenate([y_true, y_pred]))
                 cm = {int(lbl): {int(lbl2): int(np.sum((y_true == lbl) & (y_pred == lbl2))) for lbl2 in labels} for lbl in labels}
+                precisions = []
+                recalls = []
+                f1s = []
+                per_class = {}
+                for lbl in labels:
+                    tp = float(np.sum((y_true == lbl) & (y_pred == lbl)))
+                    fp = float(np.sum((y_true != lbl) & (y_pred == lbl)))
+                    fn = float(np.sum((y_true == lbl) & (y_pred != lbl)))
+                    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+                    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+                    f1 = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+                    precisions.append(precision)
+                    recalls.append(recall)
+                    f1s.append(f1)
+                    per_class[int(lbl)] = {
+                        "precision": precision,
+                        "recall": recall,
+                        "f1": f1,
+                        "support": int(np.sum(y_true == lbl))
+                    }
+                precision_macro = float(np.mean(precisions)) if precisions else 0.0
+                recall_macro = float(np.mean(recalls)) if recalls else 0.0
+                f1_macro = float(np.mean(f1s)) if f1s else 0.0
                 if label_map:
                     metrics["label_map"] = label_map
-                metrics.update({"task": "classification", "accuracy": acc, "confusion_matrix": cm})
+                metrics.update({
+                    "task": "classification",
+                    "accuracy": acc,
+                    "precision_macro": precision_macro,
+                    "recall_macro": recall_macro,
+                    "f1_macro": f1_macro,
+                    "per_class": per_class,
+                    "confusion_matrix": cm
+                })
             prev_k = min(10, len(Xte))
             preview = {
                 "columns": ["y_true", "y_pred"] + feature_candidates[:10],
@@ -1042,6 +1080,9 @@ def train_model():
             }
         elif kind == "clustering":
             num_cols = df.select_dtypes(include=["number"]).columns.tolist()
+            # Si el usuario eligió una columna objetivo por error, no la usemos como feature
+            if target and target in num_cols:
+                num_cols = [c for c in num_cols if c != target]
             if not num_cols:
                 return jsonify({"success": False, "msg": "No hay columnas numéricas para K-Means"}), 400
             X = df[num_cols]
@@ -1052,6 +1093,22 @@ def train_model():
             metrics = {"task": "clustering", "n_samples": int(len(X))}
             if inertia is not None:
                 metrics["inertia"] = float(inertia)
+            # Distribución de tamaños por cluster y centros (si están disponibles)
+            try:
+                unique, counts = np.unique(labels, return_counts=True)
+                metrics["cluster_sizes"] = {int(u): int(c) for u, c in zip(unique.tolist(), counts.tolist())}
+            except Exception:
+                pass
+            try:
+                centers = getattr(model, "cluster_centers_", None)
+                if centers is not None:
+                    centers = np.asarray(centers, dtype=float)
+                    metrics["cluster_centers"] = {
+                        int(i): {c: float(centers[i, j]) for j, c in enumerate(num_cols)}
+                        for i in range(min(centers.shape[0], 20))
+                    }
+            except Exception:
+                pass
             prev_k = min(10, len(X))
             preview = {
                 "columns": ["cluster"] + num_cols[:10],
